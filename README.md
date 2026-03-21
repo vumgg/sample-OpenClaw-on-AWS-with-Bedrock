@@ -279,6 +279,46 @@ Telegram/WhatsApp message
 
 **[→ Full Multi-Tenant Guide](README_AGENTCORE.md)** · **[→ Demo Guide](demo/README.md)** · **[→ Roadmap](ROADMAP.md)**
 
+### 🏢 Enterprise Digital Workforce Platform — [enterprise/](enterprise/)
+
+> **NEW** — Turn OpenClaw into a centrally managed digital workforce for your entire organization. Each employee gets a role-specific AI agent with unique identity, permissions, memory, and knowledge — all governed by IT, without modifying a single line of OpenClaw code.
+
+Built on top of the Multi-Tenant AgentCore Runtime, the Enterprise platform adds:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Admin Console (19 pages) + Employee Portal (5 pages)    │
+│  React + Tailwind + FastAPI + DynamoDB + S3              │
+├─────────────────────────────────────────────────────────┤
+│  Three-Layer SOUL Architecture                           │
+│  Global (IT locked) → Position (dept admin) → Personal   │
+│  Same LLM, completely different agent identities         │
+├─────────────────────────────────────────────────────────┤
+│  Enterprise Controls                                     │
+│  RBAC (admin/manager/employee) · Skill governance        │
+│  Audit trail + AI anomaly detection · Usage tracking     │
+│  Memory persistence · Knowledge base (Markdown in S3)    │
+└─────────────────────────────────────────────────────────┘
+```
+
+| Design Principle | What It Means |
+|-----------------|--------------|
+| Zero invasion | Controls OpenClaw via workspace files (SOUL.md, TOOLS.md). No fork, no patch. Upgrade OpenClaw independently. |
+| Serverless-first | Firecracker microVM per request via AgentCore. 20 agents = ~$65/mo (vs ChatGPT Team $500/mo). |
+| Security by design | No open ports, no hardcoded credentials, tenant isolation, IAM least privilege, comprehensive audit. |
+| File-first knowledge | Markdown in S3, not a vector DB. Zero infra cost, human-readable, scope-controlled. |
+
+| What's Included | Details |
+|----------------|---------|
+| 24 pages | Dashboard, Org Tree, Agents, SOUL Editor, Workspace, Skills, Knowledge, Monitor, Audit, Usage, Approvals, Settings, Playground + 5 Portal pages |
+| 35+ API endpoints | FastAPI with DynamoDB single-table design, S3 operations, JWT auth |
+| 3-role RBAC | Admin (full), Manager (department-scoped), Employee (portal only) |
+| 10 SOUL templates | SA, SDE, DevOps, QA, AE, PM, Finance, HR, CSM, Legal |
+| 26 skills | Role-filtered with `allowedRoles`/`blockedRoles` manifests |
+| Sample org | 20 employees, 20 agents, 13 departments — seed scripts included |
+
+**[→ Enterprise Platform Guide](enterprise/README.md)** · **[→ Enterprise Roadmap](enterprise/ROADMAP.md)**
+
 ### macOS (Apple Silicon) — For iOS/macOS Development
 
 | Type | Chip | RAM | Monthly |
@@ -359,9 +399,10 @@ Step-by-step deployment guide: [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ## Contributing
 
-We're building the enterprise OpenClaw platform in the open — from single-user deployment to multi-tenant SaaS. Whether you're an enterprise architect, a skill developer, a security researcher, or just someone who wants a better AI assistant, there's a place for you.
+We're building the enterprise OpenClaw platform in the open — from single-user deployment to multi-tenant digital workforce. Whether you're an enterprise architect, a skill developer, a security researcher, or just someone who wants a better AI assistant, there's a place for you.
 
 Areas where we need help most:
+- Enterprise platform testing (RBAC, SOUL injection, permission boundaries)
 - End-to-end multi-tenant testing
 - Skills with bundled SaaS credentials (Jira, Salesforce, SAP)
 - Agent-to-agent orchestration

@@ -1,0 +1,194 @@
+#!/bin/bash
+# =============================================================================
+# Agent Container Entrypoint
+# Design: server.py starts immediately (health check ready in seconds).
+# OpenClaw is invoked per-request via CLI subprocess — no long-running process.
+# S3 sync happens in background after server is up.
+# =============================================================================
+set -eo pipefail
+
+TENANT_ID="${SESSION_ID:-${sessionId:-unknown}}"
+S3_BUCKET="${S3_BUCKET:-openclaw-tenants-000000000000}"
+WORKSPACE="/root/.openclaw/workspace"
+SYNC_INTERVAL="${SYNC_INTERVAL:-60}"
+STACK_NAME="${STACK_NAME:-dev}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+
+# Extract base employee ID from Tenant Router's tenant_id format
+# Format: channel__employee_id__hash (e.g., port__emp-w5__c60c15e6c2ed12bf585)
+# We use the base employee ID for S3 workspace paths so data persists across sessions
+BASE_TENANT_ID="$TENANT_ID"
+if echo "$TENANT_ID" | grep -q '__'; then
+    # Split by __ and take the middle segment (employee ID)
+    BASE_TENANT_ID=$(echo "$TENANT_ID" | awk -F'__' '{print $2}')
+    if [ -z "$BASE_TENANT_ID" ]; then
+        BASE_TENANT_ID="$TENANT_ID"
+    fi
+fi
+S3_BASE="s3://${S3_BUCKET}/${BASE_TENANT_ID}"
+
+echo "[entrypoint] START tenant=${TENANT_ID} base=${BASE_TENANT_ID} bucket=${S3_BUCKET}"
+
+# =============================================================================
+# Step 0: Node.js runtime optimizations (before any openclaw invocation)
+# =============================================================================
+
+# V8 Compile Cache (Node.js 22+) — pre-warmed at Docker build time
+if [ -d /app/.compile-cache ]; then
+    export NODE_COMPILE_CACHE=/app/.compile-cache
+    echo "[entrypoint] V8 compile cache enabled"
+fi
+
+# Force IPv4 for Node.js 22 VPC compatibility
+# Node.js 22 Happy Eyeballs tries IPv6 first, times out in VPC without IPv6
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first"
+
+# Prepare workspace — use OpenClaw's default path so it reads SOUL.md correctly
+mkdir -p "$WORKSPACE" "$WORKSPACE/memory" "$WORKSPACE/skills"
+# Symlink for backward compat (skill_loader, watchdog sync)
+ln -sfn "$WORKSPACE" /tmp/workspace
+echo "$TENANT_ID" > /tmp/tenant_id
+echo "$BASE_TENANT_ID" > /tmp/base_tenant_id
+
+# =============================================================================
+# Step 0.5: Write openclaw.json config (substitute env vars)
+# =============================================================================
+OPENCLAW_CONFIG_DIR="$HOME/.openclaw"
+mkdir -p "$OPENCLAW_CONFIG_DIR"
+sed -e "s|\${AWS_REGION}|${AWS_REGION}|g" \
+    -e "s|\${BEDROCK_MODEL_ID}|${BEDROCK_MODEL_ID:-global.amazon.nova-2-lite-v1:0}|g" \
+    /app/openclaw.json > "$OPENCLAW_CONFIG_DIR/openclaw.json"
+echo "[entrypoint] openclaw.json written to $OPENCLAW_CONFIG_DIR/openclaw.json"
+
+# =============================================================================
+# Step 1: Start server.py IMMEDIATELY — health check must respond in seconds
+# =============================================================================
+export OPENCLAW_WORKSPACE="$WORKSPACE"
+export OPENCLAW_SKIP_ONBOARDING=1
+
+python /app/server.py &
+SERVER_PID=$!
+echo "[entrypoint] server.py PID=${SERVER_PID}"
+
+# =============================================================================
+# Step 2: S3 sync in background (non-blocking)
+# =============================================================================
+(
+    echo "[bg] Pulling workspace from S3..."
+    aws s3 sync "${S3_BASE}/workspace/" "$WORKSPACE/" --quiet 2>/dev/null || true
+
+    # Detect shared agent: if tenant_id starts with "shared_" or matches a shared agent pattern
+    # The tenant router sets SHARED_AGENT_ID env var for shared agents
+    if [ -n "${SHARED_AGENT_ID:-}" ]; then
+        echo "$SHARED_AGENT_ID" > "$WORKSPACE/.shared_agent"
+        echo "[bg] Shared agent detected: $SHARED_AGENT_ID"
+    fi
+
+    # Read tenant's position from SSM (for workspace assembly)
+    TENANT_POSITION=$(aws ssm get-parameter \
+        --name "/openclaw/${STACK_NAME}/tenants/${TENANT_ID}/position" \
+        --query Parameter.Value --output text --region "$AWS_REGION" 2>/dev/null || echo "")
+
+    # Initialize SOUL.md for new tenants
+    if [ ! -f "$WORKSPACE/SOUL.md" ]; then
+        ROLE=$(aws ssm get-parameter \
+            --name "/openclaw/${STACK_NAME}/tenants/${TENANT_ID}/soul-template" \
+            --query Parameter.Value --output text --region "$AWS_REGION" 2>/dev/null || echo "default")
+        aws s3 cp "s3://${S3_BUCKET}/_shared/templates/${ROLE}.md" "$WORKSPACE/SOUL.md" \
+            --quiet 2>/dev/null || echo "You are a helpful AI assistant." > "$WORKSPACE/SOUL.md"
+    fi
+
+    # =========================================================================
+    # Workspace Assembler: Merge three-layer SOUL (Global + Position + Personal)
+    # NOTE: At startup tenant=unknown, so we only do assembly if tenant is known.
+    # The real assembly happens in server.py on first invocation when tenant_id is available.
+    # =========================================================================
+    if [ "$TENANT_ID" != "unknown" ]; then
+        echo "[bg] Assembling three-layer workspace..."
+        python /app/workspace_assembler.py \
+            --tenant "$TENANT_ID" \
+            --workspace "$WORKSPACE" \
+            --bucket "$S3_BUCKET" \
+            --stack "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --position "${TENANT_POSITION:-}" 2>&1 || echo "[bg] workspace_assembler.py failed (non-fatal)"
+    else
+        echo "[bg] Skipping workspace assembly (tenant=unknown, will assemble on first request)"
+    fi
+
+    # =========================================================================
+    # Skill Loader: Layer 2 (S3 hot-load) + Layer 3 (pre-built bundles)
+    # Layer 1 (built-in) is already in the Docker image at ~/.openclaw/skills/
+    # =========================================================================
+    echo "[bg] Loading enterprise skills..."
+    python /app/skill_loader.py \
+        --tenant "$TENANT_ID" \
+        --workspace "$WORKSPACE" \
+        --bucket "$S3_BUCKET" \
+        --stack "$STACK_NAME" \
+        --region "$AWS_REGION" 2>&1 || echo "[bg] skill_loader.py failed (non-fatal)"
+
+    # Source skill API keys into environment (for subsequent openclaw invocations)
+    if [ -f /tmp/skill_env.sh ]; then
+        . /tmp/skill_env.sh
+        echo "[bg] Skill API keys loaded"
+    fi
+
+    echo "[bg] Workspace + skills ready"
+    echo "WORKSPACE_READY" > /tmp/workspace_status
+
+    # Watchdog: sync back every SYNC_INTERVAL seconds
+    # This persists OpenClaw's runtime changes (MEMORY.md, memory/*.md) to S3
+    while true; do
+        sleep "$SYNC_INTERVAL"
+        # Re-read base tenant ID (may have been updated by server.py on first request)
+        CURRENT_BASE=$(cat /tmp/base_tenant_id 2>/dev/null || echo "$BASE_TENANT_ID")
+        if [ "$CURRENT_BASE" != "unknown" ] && [ -n "$CURRENT_BASE" ]; then
+            SYNC_TARGET="s3://${S3_BUCKET}/${CURRENT_BASE}/workspace/"
+            aws s3 sync "$WORKSPACE/" "$SYNC_TARGET" \
+                --exclude "node_modules/*" --exclude "skills/_shared/*" --exclude "skills/*" \
+                --exclude "SOUL.md" --exclude "AGENTS.md" --exclude "TOOLS.md" --exclude "IDENTITY.md" \
+                --exclude ".personal_soul_backup.md" --exclude "knowledge/*" \
+                --region us-east-2 \
+                --quiet 2>/dev/null && echo "[watchdog] Synced to ${SYNC_TARGET}" || true
+        fi
+        
+        # Also sync memory to team-level shared path if this is a shared agent
+        if [ -f "$WORKSPACE/.shared_agent" ]; then
+            SHARED_ID=$(cat "$WORKSPACE/.shared_agent")
+            aws s3 sync "$WORKSPACE/memory/" "s3://${S3_BUCKET}/_shared/memory/${SHARED_ID}/" \
+                --quiet 2>/dev/null || true
+            aws s3 cp "$WORKSPACE/MEMORY.md" "s3://${S3_BUCKET}/_shared/memory/${SHARED_ID}/MEMORY.md" \
+                --quiet 2>/dev/null || true
+        fi
+    done
+) &
+BG_PID=$!
+echo "[entrypoint] Background sync PID=${BG_PID}"
+
+# =============================================================================
+# Step 3: Graceful shutdown
+# =============================================================================
+cleanup() {
+    echo "[entrypoint] SIGTERM — flushing workspace"
+    kill "$BG_PID" 2>/dev/null || true
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+    # Final sync using base tenant ID
+    FINAL_BASE=$(cat /tmp/base_tenant_id 2>/dev/null || echo "$BASE_TENANT_ID")
+    if [ "$FINAL_BASE" != "unknown" ] && [ -n "$FINAL_BASE" ]; then
+        aws s3 sync "$WORKSPACE/" "s3://${S3_BUCKET}/${FINAL_BASE}/workspace/" \
+            --exclude "node_modules/*" --exclude "skills/_shared/*" --exclude "skills/*" \
+            --exclude "SOUL.md" --exclude "AGENTS.md" --exclude "TOOLS.md" --exclude "IDENTITY.md" \
+            --exclude ".personal_soul_backup.md" --exclude "knowledge/*" \
+            --region us-east-2 \
+            --quiet 2>/dev/null || true
+        echo "[entrypoint] Workspace flushed to s3://${S3_BUCKET}/${FINAL_BASE}/workspace/"
+    fi
+    echo "[entrypoint] Done"
+    exit 0
+}
+trap cleanup SIGTERM SIGINT
+
+echo "[entrypoint] Waiting..."
+wait "$SERVER_PID" || true

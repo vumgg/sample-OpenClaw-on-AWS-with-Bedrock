@@ -1,3 +1,20 @@
+# Python
 __pycache__/
-demo/_ui.html
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+admin-console/dist/
+admin-console/node_modules/
+
+# IDE
 .vscode/
+.DS_Store
+**/.DS_Store
+
+# Build artifacts
+*.pkg
+
+# Demo
+demo/_ui.html

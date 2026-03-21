@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+/* === OpenClaw Enterprise Dark Theme === */
+@theme {
+  --color-dark-bg: #1a1c23;
+  --color-dark-card: #24262d;
+  --color-dark-sidebar: #1e2028;
+  --color-dark-border: #2e3039;
+  --color-dark-hover: #2a2c35;
+  --color-primary: #6366f1;
+  --color-primary-light: #818cf8;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+  --color-cyan: #06b6d4;
+  --color-text-primary: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+}
+
+body {
+  background-color: var(--color-dark-bg);
+  color: var(--color-text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.5); }
+
+/* ApexCharts dark overrides */
+.apexcharts-tooltip { background: #24262d !important; border: 1px solid #2e3039 !important; color: #e2e8f0 !important; }
+.apexcharts-tooltip-title { background: #1a1c23 !important; border-bottom: 1px solid #2e3039 !important; }
+.apexcharts-xaxistooltip, .apexcharts-yaxistooltip { background: #24262d !important; border: 1px solid #2e3039 !important; color: #e2e8f0 !important; }
+.apexcharts-legend-text { color: #94a3b8 !important; }
