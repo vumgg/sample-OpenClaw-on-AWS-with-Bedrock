@@ -26,7 +26,7 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
         <div className="flex h-16 items-center gap-3 border-b border-dark-border px-4">
           <ClawForgeLogo size={32} animate="idle" />
           <div>
-            <div className="text-sm font-semibold text-text-primary">ClawForge Portal</div>
+            <div className="text-sm font-semibold text-text-primary">OpenClaw Portal</div>
             <div className="text-xs text-text-muted">{user?.name || 'Employee'}</div>
           </div>
         </div>

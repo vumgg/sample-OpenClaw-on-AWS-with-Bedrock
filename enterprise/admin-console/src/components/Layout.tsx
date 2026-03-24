@@ -171,7 +171,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           <ClawForgeLogo size={32} animate="idle" />
           {sidebarOpen && (
             <div className="overflow-hidden">
-              <div className="text-sm font-semibold text-text-primary truncate">ClawForge</div>
+              <div className="text-sm font-semibold text-text-primary truncate">OpenClaw Enterprise</div>
               <div className="text-[10px] text-text-muted truncate">on AgentCore · aws-samples</div>
             </div>
           )}

@@ -1,4 +1,4 @@
-# ClawForge on AgentCore
+# OpenClaw Enterprise on AgentCore
 
 Turn [OpenClaw](https://github.com/openclaw/openclaw) from a personal AI assistant into an enterprise-grade digital workforce platform — without modifying a single line of OpenClaw source code.
 
@@ -167,6 +167,61 @@ The merged SOUL.md is what the agent reads. An SA agent and a Finance agent use 
 │  └── CloudWatch — agent invocation logs                      │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## Gateway Architecture: One Bot, All Employees
+
+A single OpenClaw Gateway on EC2 serves as the unified IM connection layer for the entire organization. IT Admin creates one Bot per IM platform (one Discord Bot, one Telegram Bot, one Slack App), and all employees share it.
+
+```
+IT Admin (one-time setup):
+  Discord  → Create 1 Bot "ACME Agent" → Connect to Gateway
+  Telegram → Create 1 Bot @acme_bot    → Connect to Gateway
+  Slack    → Create 1 App              → Connect to Gateway
+  WhatsApp → Link 1 number             → Connect to Gateway
+
+All employees use the same Bot, but get different Agents:
+
+  Carol DMs @ACME Agent → Gateway → H2 Proxy extracts user_id → Tenant Router
+    → AgentCore microVM (Carol's Finance Analyst SOUL) → Bedrock → reply
+
+  Wang Wu DMs @ACME Agent → Gateway → H2 Proxy extracts user_id → Tenant Router
+    → AgentCore microVM (Wang Wu's SDE SOUL) → Bedrock → reply
+```
+
+The Gateway doesn't do AI inference — it only manages IM connections. When a message arrives, OpenClaw's AWS SDK call to Bedrock is intercepted by the H2 Proxy, which extracts the sender's platform user ID and forwards to the Tenant Router. The Router derives a unique `tenant_id` and invokes AgentCore, which creates an isolated Firecracker microVM with the employee's personalized SOUL.
+
+### Employee Onboarding Flow
+
+When a new employee joins the company and needs their AI agent:
+
+```
+Step 1: Employee joins company Discord/Slack/Telegram
+        (or IT sends them an invite link)
+
+Step 2: Employee DMs the company Bot for the first time
+        Bot replies: "Pairing code: KFDAF3GN"
+
+Step 3: IT Admin opens Admin Console → Bindings → IM User Mappings
+        Clicks "Add Mapping":
+          Channel: Discord
+          Platform User ID: 1460888812426363004 (from pairing message)
+          Employee: Carol Zhang (Finance Analyst)
+        → System writes SSM mapping + approves pairing
+
+Step 4: Employee sends another message
+        → Gateway allows it (pairing approved)
+        → H2 Proxy extracts Discord user_id
+        → Tenant Router resolves: user_id → emp-carol → pos-fa
+        → AgentCore creates microVM with Finance Analyst SOUL
+        → Agent responds as "ACME Corp Finance Analyst"
+
+Step 5: From now on, every DM from Carol goes to her personal Agent
+        with her SOUL identity, permissions, memory, and skills.
+```
+
+Zero configuration for the employee. They just DM the Bot. IT Admin does a one-click approval + binding in the Admin Console.
+
+For employees who don't use IM tools, the Web Portal provides the same experience — login with employee ID, chat with their bound Agent directly in the browser.
 
 ## Key Features
 

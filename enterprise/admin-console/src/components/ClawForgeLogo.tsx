@@ -69,7 +69,7 @@ export function ClawForgeBrand({ size = 'md', animate = 'idle' as Props['animate
     <div className="flex items-center gap-2.5">
       <ClawForgeLogo size={logoSize} animate={animate} variant={variant} />
       <div>
-        <div className={`${titleSize} font-extrabold ${textColor} tracking-tight`}>ClawForge</div>
+        <div className={`${titleSize} font-extrabold ${textColor} tracking-tight`}>OpenClaw Enterprise</div>
         <div className={`${subSize} ${subColor}`}>on AgentCore · aws-samples</div>
       </div>
     </div>

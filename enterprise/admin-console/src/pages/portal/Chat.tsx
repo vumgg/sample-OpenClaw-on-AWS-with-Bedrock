@@ -94,7 +94,7 @@ export default function PortalChat() {
         <div className="flex items-center gap-3">
           <ClawForgeLogo size={36} animate="idle" />
           <div>
-            <h1 className="text-sm font-semibold text-text-primary">ClawForge Assistant</h1>
+            <h1 className="text-sm font-semibold text-text-primary">AI Assistant</h1>
             <p className="text-xs text-text-muted">{user?.positionName} · {user?.departmentName}</p>
           </div>
         </div>

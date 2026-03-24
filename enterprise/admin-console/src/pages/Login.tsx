@@ -45,7 +45,7 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex mb-4"><ClawForgeLogo size={56} animate="idle" /></div>
-          <h1 className="text-2xl font-bold text-text-primary">ClawForge</h1>
+          <h1 className="text-2xl font-bold text-text-primary">OpenClaw Enterprise</h1>
           <p className="text-sm text-text-muted mt-1">on AgentCore · aws-samples</p>
         </div>
 
