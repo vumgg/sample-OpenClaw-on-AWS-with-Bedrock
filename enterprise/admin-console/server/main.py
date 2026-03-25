@@ -1231,10 +1231,13 @@ def _admin_assistant_direct(message: str) -> dict:
             try:
                 decoder = json.JSONDecoder()
                 data, _ = decoder.raw_decode(raw, json_start)
-                payloads = data.get("payloads", [])
+                # OpenClaw --json output: {"runId":..., "result": {"payloads": [{"text": "..."}]}, "meta": {...}}
+                # Also handle flat format: {"payloads": [{"text": "..."}], "meta": {...}}
+                result_obj = data.get("result", data)  # try nested first, fallback to top-level
+                payloads = result_obj.get("payloads", [])
                 text = " ".join(p.get("text", "") for p in payloads if p.get("text")).strip()
                 if not text:
-                    text = data.get("text", "")
+                    text = data.get("text", result_obj.get("text", ""))
                 if text:
                     return {"response": text, "tenant_id": "admin", "profile": profile,
                             "plan_a": profile["planA"], "plan_e": "✅ Direct EC2", "source": "ec2-direct"}
