@@ -6,7 +6,7 @@ Turn [OpenClaw](https://github.com/openclaw/openclaw) from a personal AI assista
 
 > **https://openclaw.awspsa.com**
 >
-> A real running instance with 7 departments, 13 sub-departments, 11 positions, 22 employees, 22 AI agents (20 personal + 2 shared), 26 role-filtered skills, and 12 knowledge documents — all backed by DynamoDB + S3 on AWS.
+> A real running instance with 7 top-level + 6 sub-departments (13 total), 11 positions, 22 employees, 23 AI agents (20 personal + 3 shared), 26 role-filtered skills, and 12 knowledge documents — all backed by DynamoDB + S3 on AWS.
 >
 > This is not a mockup. Every button works, every chart reads from real data, every agent runs on Bedrock AgentCore in isolated Firecracker microVMs. Discord Bot connected with real SOUL injection and cross-session memory persistence verified.
 >
@@ -430,7 +430,8 @@ The seed scripts create ACME Corp — a B2B SaaS company with:
 | Departments | 13 | 7 top-level + 6 sub-departments |
 | Positions | 11 | SA, SDE, DevOps, QA, AE, PM, FA, HR, CSM, Legal, Executive |
 | Employees | 22 | Each with workspace files in S3 |
-| Agents | 22 | 20 personal (1:1) + 2 shared (Help Desk, Onboarding) |
+| Agents | 23 | 20 personal (1:1) + 3 shared (Help Desk, Onboarding, Platform) |
+| Bindings | 12 | IM channel bindings (Discord, Slack, Telegram) |
 | Skills | 26 | 6 global + 20 department-scoped, 3 layers |
 | Knowledge Docs | 12 | Company policies, architecture standards, runbooks, etc. |
 | SOUL Templates | 11 | 1 global + 10 position-specific |
@@ -441,13 +442,15 @@ The seed scripts create ACME Corp — a B2B SaaS company with:
 | Employee ID | Name | Role | What They See |
 |-------------|------|------|--------------|
 | emp-z3 | Zhang San | Admin | Full Admin Console |
-| emp-jiade | JiaDe Wang | Admin | Full Admin Console (Discord-connected, SA full tools) |
+| emp-jiade | JiaDe Wang | Admin | Full Admin Console + Discord → SA Agent (full dev tools, cross-session memory ✨) |
 | emp-lin | Lin Xiaoyu | Manager | Product department only |
 | emp-mike | Mike Johnson | Manager | Sales department only |
-| emp-peter | Peter Wu | Manager | Engineering (Executive, Discord-connected, no shell/code) |
+| emp-peter | Peter Wu | Manager | Portal/Discord → Executive Agent (strategic tools, no shell/code, memory ✨) |
+| emp-david | David Park | Employee | Portal/Discord → Finance Agent (Excel + SAP, no shell, memory ✨) |
 | emp-w5 | Wang Wu | Employee | Portal: SDE Agent (full dev tools) |
 | emp-carol | Carol Zhang | Employee | Portal: Finance Agent (Excel + SAP only, no shell) |
-| emp-emma | Emma Chen | Employee | Portal: CSM Agent |
+
+> ✨ = Cross-session memory via S3. Agent recalls previous conversations when you return. Discord pairing required for Discord access — see Bindings → IM User Mappings → Approve Pairing.
 
 ## What to Test
 
@@ -469,9 +472,16 @@ Login as Lin Xiaoyu (Manager) → Dashboard → **Only Product department data v
 Send messages in Portal → Usage & Cost page updates with **real token counts from DynamoDB**
 By Model tab shows **real model distribution** from DynamoDB usage records
 
-### 5. Memory Persistence
-Carol tells agent "Remember: I prefer EBITDA analysis" → Agent writes to memory →
-Memory file syncs to S3 → Next session, agent remembers the preference
+### 5. Memory Persistence (Cross-Session)
+Login as Peter Wu or JiaDe Wang (or use Discord) → Chat → come back later →
+Agent recalls previous conversations from S3-persisted MEMORY.md.
+
+**How it works:**
+- OpenClaw Gateway runs inside each AgentCore microVM (zero invasion to OpenClaw)
+- Gateway manages session memory natively — writes to `workspace/MEMORY.md`
+- Watchdog syncs workspace to S3 every 60s
+- Next session: new microVM loads MEMORY.md from S3 → agent has full context
+- Same memory shared across Discord, Telegram, Slack, and Portal Chat (same employee = same S3 path)
 
 ### 6. LLM Model Management (Settings)
 Settings → LLM Provider → **Change default model** (writes to DynamoDB)
