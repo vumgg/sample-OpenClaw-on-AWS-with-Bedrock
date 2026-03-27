@@ -1668,6 +1668,12 @@ def pair_complete(body: PairCompleteRequest):
         except Exception as e:
             print(f"[pair-complete] SSM write failed key={key}: {e}")
 
+    # Update DynamoDB employee record so portal/channels reflects this immediately
+    try:
+        db.add_employee_channel(emp_id, channel)
+    except Exception as e:
+        print(f"[pair-complete] DynamoDB channel update failed (non-fatal): {e}")
+
     # Resolve employee name for confirmation message
     emps = db.get_employees()
     emp = next((e for e in emps if e["id"] == emp_id), {})
@@ -1898,6 +1904,11 @@ def portal_channel_disconnect(channel: str, authorization: str = Header(default=
             ssm_del.delete_parameter(Name=f"{prefix}{key}")
         except Exception:
             pass
+    # Remove from DynamoDB employee channels
+    try:
+        db.remove_employee_channel(user.employee_id, channel)
+    except Exception as e:
+        print(f"[disconnect] DynamoDB channel remove failed (non-fatal): {e}")
     db.create_audit_entry({
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "eventType": "config_change",
@@ -1913,13 +1924,26 @@ def portal_channel_disconnect(channel: str, authorization: str = Header(default=
 
 @app.get("/api/v1/portal/channels")
 def portal_channels(authorization: str = Header(default="")):
-    """Return list of connected IM channels for the current employee."""
+    """Return list of connected IM channels for the current employee.
+
+    Primary source: DynamoDB employee record's 'channels' field (set by admin
+    when a pairing is approved or a self-service pairing completes).
+    Fallback: SSM user-mapping scan (slower, catches edge cases).
+    """
     user = _require_auth(authorization)
+    # Primary: read from DynamoDB employee record
+    try:
+        emp = db.get_employee(user.employee_id)
+        if emp:
+            db_channels = [c for c in emp.get("channels", []) if c not in ("portal",)]
+            if db_channels:
+                return {"connected": db_channels}
+    except Exception:
+        pass
+    # Fallback: SSM scan
     connected = []
     for channel_prefix in ["telegram", "discord", "slack", "whatsapp", "feishu"]:
-        # Check if a SSM mapping exists for this employee+channel combo
-        mapping = _list_user_mappings_for_employee(user.employee_id, channel_prefix)
-        if mapping:
+        if _list_user_mappings_for_employee(user.employee_id, channel_prefix):
             connected.append(channel_prefix)
     return {"connected": connected}
 

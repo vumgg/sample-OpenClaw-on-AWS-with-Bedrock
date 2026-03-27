@@ -93,6 +93,39 @@ def get_positions() -> list[dict]:
 def get_employees() -> list[dict]:
     return _query("EMP#")
 
+def get_employee(emp_id: str) -> Optional[dict]:
+    return _get_item(f"EMP#{emp_id}")
+
+def add_employee_channel(emp_id: str, channel: str) -> None:
+    """Add a channel to the employee's channels list (idempotent)."""
+    try:
+        _get_table().update_item(
+            Key={"PK": ORG_PK, "SK": f"EMP#{emp_id}"},
+            UpdateExpression="SET #ch = list_append(if_not_exists(#ch, :empty), :val)",
+            ConditionExpression="not contains(#ch, :channel)",
+            ExpressionAttributeNames={"#ch": "channels"},
+            ExpressionAttributeValues={":val": [channel], ":empty": [], ":channel": channel},
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            print(f"[db] add_employee_channel error: {e}")
+
+def remove_employee_channel(emp_id: str, channel: str) -> None:
+    """Remove a channel from the employee's channels list."""
+    try:
+        emp = get_employee(emp_id)
+        if not emp:
+            return
+        channels = [c for c in emp.get("channels", []) if c != channel]
+        _get_table().update_item(
+            Key={"PK": ORG_PK, "SK": f"EMP#{emp_id}"},
+            UpdateExpression="SET #ch = :val",
+            ExpressionAttributeNames={"#ch": "channels"},
+            ExpressionAttributeValues={":val": channels},
+        )
+    except ClientError as e:
+        print(f"[db] remove_employee_channel error: {e}")
+
 def get_agents() -> list[dict]:
     items = _query("AGENT#")
     # Convert qualityScore from string back to float
