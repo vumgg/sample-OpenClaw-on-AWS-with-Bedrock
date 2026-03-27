@@ -28,7 +28,10 @@ export default function AgentList() {
   const empOptions = EMPLOYEES
     .filter(e => !e.agentId && (!newPos || e.positionId === newPos))
     .map(e => ({ label: `${e.name} (${e.positionName})`, value: e.id }));
-  const avgQuality = AGENTS.filter(a => a.qualityScore).reduce((s, a) => s + (a.qualityScore || 0), 0) / AGENTS.filter(a => a.qualityScore).length;
+  const qualityAgents = AGENTS.filter(a => a.qualityScore);
+  const avgQuality = qualityAgents.length > 0
+    ? qualityAgents.reduce((s, a) => s + (a.qualityScore || 0), 0) / qualityAgents.length
+    : null;
 
   const personalAgents = AGENTS.filter(a => a.employeeId !== null);
   const sharedAgents = AGENTS.filter(a => a.employeeId === null);
@@ -59,7 +62,7 @@ export default function AgentList() {
         <StatCard title="Personal (1:1)" value={personalAgents.length} icon={<Users size={22} />} color="info" />
         <StatCard title="Shared (N:1)" value={sharedAgents.length} icon={<Users size={22} />} color="cyan" />
         <StatCard title="Active" value={AGENTS.filter(a => a.status === 'active').length} icon={<Zap size={22} />} color="success" />
-        <StatCard title="Avg Quality" value={`⭐ ${avgQuality.toFixed(1)}`} icon={<Star size={22} />} color="warning" />
+        <StatCard title="Avg Quality" value={avgQuality !== null ? `⭐ ${avgQuality.toFixed(1)}` : '—'} icon={<Star size={22} />} color="warning" />
       </div>
 
       <Card>

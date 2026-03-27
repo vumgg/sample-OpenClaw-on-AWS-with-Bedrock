@@ -99,9 +99,9 @@ export default function SoulEditor() {
           <div>
             <p className="text-xs text-text-muted">Versions</p>
             <div className="flex gap-1 mt-0.5">
-              <Badge>G:v{agent.soulVersions.global}</Badge>
-              <Badge color="primary">P:v{agent.soulVersions.position}</Badge>
-              <Badge color="success">U:v{agent.soulVersions.personal}</Badge>
+              <Badge>G:v{agent.soulVersions?.global ?? 0}</Badge>
+              <Badge color="primary">P:v{agent.soulVersions?.position ?? 0}</Badge>
+              <Badge color="success">U:v{agent.soulVersions?.personal ?? 0}</Badge>
             </div>
           </div>
         </div>

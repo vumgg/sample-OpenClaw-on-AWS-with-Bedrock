@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Send, User, Bot, Shield, Eye, Terminal, Loader, FileText, ChevronDown, ChevronRight, Save, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Card, Badge, Button, PageHeader, Select, Tabs } from '../components/ui';
@@ -118,6 +119,8 @@ function FileCard({ label, s3Key, editable = false, badge, badgeColor = 'default
 
 // ── Main Playground ─────────────────────────────────────────────────────────
 export default function Playground() {
+  const [searchParams] = useSearchParams();
+  const agentParam = searchParams.get('agent'); // e.g. "agent-ae-mike"
   const { data: profiles } = usePlaygroundProfiles();
   const { data: employees = [] } = useEmployees();
   const { data: positions = [] } = usePositions();
@@ -144,8 +147,16 @@ export default function Playground() {
   const [tenantReady, setTenantReady] = useState(false);
 
   useEffect(() => {
-    if (tenantOptions.length > 0 && !tenantId) setTenantId(tenantOptions[0].value);
-  }, [tenantOptions, tenantId]);
+    if (tenantOptions.length === 0) return;
+    if (tenantId) return;
+    // Pre-select from ?agent= query param if present
+    if (agentParam) {
+      const matched = tenantOptions.find(o => o.value.includes(agentParam) ||
+        employees.find(e => e.agentId === agentParam && o.value === `port__${e.id}`));
+      if (matched) { setTenantId(matched.value); return; }
+    }
+    setTenantId(tenantOptions[0].value);
+  }, [tenantOptions, tenantId, agentParam]);
 
   const profile = profiles?.[tenantId] || { role: 'loading', tools: [], planA: '', planE: '' };
 
