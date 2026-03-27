@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MessageSquare, User, BarChart3, Puzzle, FileText, LogOut, Sun, Moon } from 'lucide-react';
+import { MessageSquare, User, BarChart3, Puzzle, FileText, LogOut, Sun, Moon, Link2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import ClawForgeLogo from './ClawForgeLogo';
@@ -12,6 +12,7 @@ const NAV = [
   { label: 'My Usage', href: '/portal/usage', icon: <BarChart3 size={20} /> },
   { label: 'My Skills', href: '/portal/skills', icon: <Puzzle size={20} /> },
   { label: 'My Requests', href: '/portal/requests', icon: <FileText size={20} /> },
+  { label: 'Connect IM', href: '/portal/channels', icon: <Link2 size={20} /> },
 ];
 
 export default function PortalLayout({ children }: { children: ReactNode }) {

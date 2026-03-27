@@ -25,6 +25,7 @@ const crypto = require('node:crypto');
 
 const PORT = parseInt(process.env.PROXY_PORT || '8091');
 const TENANT_ROUTER_URL = process.env.TENANT_ROUTER_URL || 'http://127.0.0.1:8090';
+const ADMIN_CONSOLE_URL = process.env.ADMIN_CONSOLE_URL || 'http://127.0.0.1:8099';
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID || 'global.amazon.nova-2-lite-v1:0';
 
@@ -585,6 +586,61 @@ server.on('stream', (stream, headers) => {
           stream.end(JSON.stringify(buildConverseResponse(noMsg)));
         }
         return;
+      }
+
+      // =====================================================================
+      // PATH C: IM Self-Service Pairing — intercept /start TOKEN commands
+      // When an employee scans the Portal QR code, Telegram sends "/start TOKEN".
+      // We validate the token against Admin Console and write the SSM mapping
+      // WITHOUT invoking AgentCore — fast, free, no microVM spin-up.
+      //
+      // Safety: only intercepts exact pattern /start [A-Z0-9]{10,16}
+      // On any error (invalid token, network, etc.) → falls through to normal routing
+      // =====================================================================
+      const pairMatch = userText.trim().match(/^\/start\s+([A-Za-z0-9]{10,16})$/);
+      if (pairMatch && userId !== 'unknown' && channel !== 'unknown') {
+        const token = pairMatch[1].toUpperCase();
+        try {
+          const http = require('node:http');
+          const pairResult = await new Promise((resolve, reject) => {
+            const payload = JSON.stringify({ channel, channelUserId: userId, token });
+            const req = http.request({
+              hostname: '127.0.0.1', port: 8099, path: '/api/v1/bindings/pair-complete',
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+            }, (res) => {
+              let data = '';
+              res.on('data', c => data += c);
+              res.on('end', () => {
+                try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+                catch { resolve({ status: res.statusCode, body: {} }); }
+              });
+            });
+            req.on('error', reject);
+            req.setTimeout(5000, () => { req.destroy(); reject(new Error('pair-complete timeout')); });
+            req.write(payload);
+            req.end();
+          });
+
+          if (pairResult.status === 200 && pairResult.body.success) {
+            const { employeeName, positionName } = pairResult.body;
+            const confirmMsg = `✅ Connected! Hi ${employeeName} — your ${positionName || 'AI'} Agent is ready. Just send me a message to get started!`;
+            log(`PATH C: Pairing complete ${channel} ${userId} → ${pairResult.body.employeeId}`);
+            if (isStream) {
+              stream.respond({ ':status': 200, 'content-type': 'application/vnd.amazon.eventstream' });
+              for (const e of buildEventStream(confirmMsg)) stream.write(e);
+              stream.end();
+            } else {
+              stream.respond({ ':status': 200, 'content-type': 'application/json' });
+              stream.end(JSON.stringify(buildConverseResponse(confirmMsg)));
+            }
+            return; // ← pairing handled, do NOT route to AgentCore
+          }
+          // Token invalid/expired — fall through to normal routing with a hint
+          log(`PATH C: Pairing token invalid/expired for ${userId}, routing normally`);
+        } catch (pairErr) {
+          log(`PATH C: Pairing error (falling through): ${pairErr.message}`);
+          // Fall through to normal routing — employee gets regular agent response
+        }
       }
 
       // Core routing: fast-path for cold tenants, full pipeline for warm

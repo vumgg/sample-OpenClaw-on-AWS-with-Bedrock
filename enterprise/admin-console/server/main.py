@@ -1556,6 +1556,121 @@ def playground_send(body: PlaygroundMessage, authorization: str = Header(default
 # Portal — Employee Self-Service endpoints
 # =========================================================================
 
+# =========================================================================
+# Portal — IM Self-Service Pairing
+# Flow: pair-start (Portal) → employee scans QR → bot receives /start TOKEN
+#       → H2 Proxy calls pair-complete → SSM mapping written → done
+# =========================================================================
+
+# Channel → bot info map (used to build deep links shown to employees)
+_CHANNEL_BOT_INFO = {
+    "telegram": {
+        "botUsername": os.environ.get("TELEGRAM_BOT_USERNAME", "acme_enterprise_bot"),
+        "deepLinkTemplate": "https://t.me/{bot}?start={token}",
+        "label": "Telegram",
+    },
+    "discord": {
+        "botUsername": "ACME Agent",
+        "deepLinkTemplate": None,  # Discord uses pairing code entry
+        "label": "Discord",
+    },
+    "slack": {
+        "botUsername": os.environ.get("SLACK_BOT_USERNAME", "acme-agent"),
+        "deepLinkTemplate": None,
+        "label": "Slack",
+    },
+}
+
+
+class PairStartRequest(BaseModel):
+    channel: str  # "telegram" | "discord" | "slack"
+
+
+class PairCompleteRequest(BaseModel):
+    channel: str
+    channelUserId: str
+    token: str
+
+
+@app.post("/api/v1/portal/channel/pair-start")
+def pair_start(body: PairStartRequest, authorization: str = Header(default="")):
+    """Employee initiates IM pairing. Returns a token + deep link / QR data."""
+    user = _require_auth(authorization)
+
+    import secrets, string
+    token = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
+
+    db.create_pair_token(token, user.employee_id, body.channel)
+
+    bot_info = _CHANNEL_BOT_INFO.get(body.channel, {})
+    bot_username = bot_info.get("botUsername", "")
+    template = bot_info.get("deepLinkTemplate")
+    deep_link = template.format(bot=bot_username, token=token) if template else None
+
+    return {
+        "token": token,
+        "deepLink": deep_link,
+        "botUsername": bot_username,
+        "channel": body.channel,
+        "expiresIn": 900,  # 15 minutes
+    }
+
+
+@app.get("/api/v1/portal/channel/pair-status")
+def pair_status(token: str, authorization: str = Header(default="")):
+    """Poll pairing status. Returns pending / completed / expired."""
+    _require_auth(authorization)
+    import time as _t
+    item = db.get_pair_token(token)
+    if not item:
+        return {"status": "not_found"}
+    if item.get("ttl", 0) < int(_t.time()):
+        return {"status": "expired"}
+    return {"status": item.get("status", "pending")}
+
+
+@app.post("/api/v1/bindings/pair-complete")
+def pair_complete(body: PairCompleteRequest):
+    """Called by H2 Proxy when employee sends /start TOKEN to the bot.
+    No auth — called from internal network only (H2 Proxy on same EC2).
+    Validates token, writes SSM user mapping, logs audit entry."""
+    item = db.consume_pair_token(body.token)
+    if not item:
+        raise HTTPException(400, "Token invalid, already used, or expired")
+
+    emp_id = item["employeeId"]
+    channel = item.get("channel", body.channel)
+
+    # Write SSM mapping: channel__channelUserId → emp_id
+    _write_user_mapping(channel, body.channelUserId, emp_id)
+    # Also write bare user_id mapping for fallback lookup
+    _write_user_mapping("", body.channelUserId, emp_id)
+
+    # Resolve employee name for confirmation message
+    emps = db.get_employees()
+    emp = next((e for e in emps if e["id"] == emp_id), {})
+
+    # Audit log
+    db.create_audit_entry({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "eventType": "config_change",
+        "actorId": emp_id,
+        "actorName": emp.get("name", emp_id),
+        "targetType": "binding",
+        "targetId": f"{channel}__{body.channelUserId}",
+        "detail": f"IM pairing self-service: {channel} {body.channelUserId} → {emp_id}",
+        "status": "success",
+    })
+
+    return {
+        "success": True,
+        "employeeName": emp.get("name", emp_id),
+        "employeeId": emp_id,
+        "positionName": emp.get("positionName", ""),
+        "channel": channel,
+    }
+
+
 class PortalChatMessage(BaseModel):
     message: str
 
@@ -1725,6 +1840,35 @@ def portal_requests(authorization: str = Header(default="")):
     my_pending = [a for a in all_approvals if a.get("tenantId", "").endswith(user.employee_id.replace("emp-", "")) and a.get("status") == "pending"]
     my_resolved = [a for a in all_approvals if a.get("tenantId", "").endswith(user.employee_id.replace("emp-", "")) and a.get("status") != "pending"]
     return {"pending": my_pending, "resolved": my_resolved}
+
+
+@app.get("/api/v1/portal/channels")
+def portal_channels(authorization: str = Header(default="")):
+    """Return list of connected IM channels for the current employee."""
+    user = _require_auth(authorization)
+    connected = []
+    for channel_prefix in ["telegram", "discord", "slack", "whatsapp", "feishu"]:
+        # Check if a SSM mapping exists for this employee+channel combo
+        # We look for any mapping pointing to this employee
+        mapping = _read_user_mapping(channel_prefix, f"emp_{user.employee_id}") or \
+                  _list_user_mappings_for_employee(user.employee_id, channel_prefix)
+        if mapping:
+            connected.append(channel_prefix)
+    return {"connected": connected}
+
+
+def _list_user_mappings_for_employee(emp_id: str, channel_prefix: str) -> bool:
+    """Check if any SSM mapping exists for this employee on the given channel."""
+    try:
+        prefix = _mapping_prefix()
+        ssm = _ssm_client()
+        resp = ssm.get_parameters_by_path(Path=prefix, Recursive=True, MaxResults=50)
+        for p in resp.get("Parameters", []):
+            if p.get("Value") == emp_id and channel_prefix in p.get("Name", ""):
+                return True
+        return False
+    except Exception:
+        return False
 
 
 # =========================================================================

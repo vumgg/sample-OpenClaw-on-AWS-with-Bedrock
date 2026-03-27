@@ -252,6 +252,40 @@ def get_sessions() -> list[dict]:
         print(f"[db] DynamoDB query error: {e}")
         return []
 
+# === Pairing Tokens (employee IM self-service binding) ===
+
+def create_pair_token(token: str, emp_id: str, channel: str) -> dict:
+    """Create a short-lived pairing token (15 min TTL) for IM self-service binding."""
+    import time as _t
+    from datetime import datetime, timezone
+    item = {
+        "token": token,
+        "employeeId": emp_id,
+        "channel": channel,
+        "status": "pending",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "ttl": int(_t.time()) + 900,
+    }
+    _put_item(f"PAIR#{token}", item, "TYPE#pair", f"PAIR#{token}")
+    return item
+
+def get_pair_token(token: str) -> dict | None:
+    return _get_item(f"PAIR#{token}")
+
+def consume_pair_token(token: str) -> dict | None:
+    """Atomically validate and mark token as completed. Returns token data if valid."""
+    import time as _t
+    item = _get_item(f"PAIR#{token}")
+    if not item:
+        return None
+    if item.get("status") != "pending":
+        return None  # already used
+    if item.get("ttl", 0) < int(_t.time()):
+        return None  # expired
+    _put_item(f"PAIR#{token}", {**item, "status": "completed"}, "TYPE#pair", f"PAIR#{token}")
+    return item
+
+
 def get_session(session_id: str) -> dict | None:
     """Return a single session by ID, injecting 'id' field."""
     item = _get_item(f"SESSION#{session_id}")
