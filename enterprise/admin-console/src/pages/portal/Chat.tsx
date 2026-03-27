@@ -94,10 +94,20 @@ export default function PortalChat() {
         timestamp: new Date().toISOString(), source: resp.source, model: resp.model,
       }]);
     } catch (e: any) {
-      // Auto-retry once — AgentCore cold start takes ~25s, first request often fails
+      // 404 = no agent binding configured — don't retry, show actionable error
+      if (e?.status === 404 || String(e?.message || '').includes('No agent bound')) {
+        setMessages(prev => [...prev, {
+          id: Date.now() + 1, role: 'assistant',
+          content: 'Your agent is not yet configured. Please contact your IT Admin to provision your agent.',
+          timestamp: new Date().toISOString(), source: 'error',
+        }]);
+        setSending(false);
+        return;
+      }
+      // Timeout / cold start — retry once after 3s
       setMessages(prev => [...prev, {
         id: Date.now() + 1, role: 'assistant',
-        content: '⏳ Agent is warming up (first request). Retrying...',
+        content: '⏳ Agent is warming up (first request). Retrying in 3s...',
         timestamp: new Date().toISOString(), source: 'warmup',
       }]);
       try {
@@ -110,7 +120,7 @@ export default function PortalChat() {
       } catch {
         setMessages(prev => [...prev, {
           id: Date.now() + 2, role: 'assistant',
-          content: 'Agent is still starting up. Please try again in ~30 seconds.',
+          content: 'Agent is still starting up. Please wait ~30 seconds and try again.',
           timestamp: new Date().toISOString(), source: 'error',
         }]);
       }

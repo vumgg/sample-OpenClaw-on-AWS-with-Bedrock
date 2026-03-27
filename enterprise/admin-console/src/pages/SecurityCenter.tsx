@@ -6,11 +6,11 @@ import {
 } from 'lucide-react';
 import { Card, Badge, Button, PageHeader, Tabs, Modal } from '../components/ui';
 import {
-  usePositions, useSecurityRuntimes, useUpdateRuntimeLifecycle,
+  usePositions, useSecurityRuntimes, useUpdateRuntimeLifecycle, useUpdateRuntimeConfig, useCreateRuntime,
   useGlobalSoul, useUpdateGlobalSoul,
   usePositionSoul, useUpdatePositionSoul,
   usePositionTools, useUpdatePositionTools,
-  useInfrastructure,
+  useInfrastructure, useEcrImages, useIamRoles, useVpcResources,
   useModelConfig, useUpdateModelConfig, useUpdateFallbackModel,
   useSetPositionModel, useRemovePositionModel,
 } from '../hooks/useApi';
@@ -56,103 +56,325 @@ function TimeSlider({ label, value, onChange, min = 60, max = 28800 }: {
   );
 }
 
-// ─── Runtime Card ─────────────────────────────────────────────────────────────
+// ─── Runtime Edit Modal ───────────────────────────────────────────────────────
 
-function RuntimeCard({ rt, models }: { rt: any; models: any[] }) {
-  const [editing, setEditing] = useState(false);
+function RuntimeEditModal({ rt, models, onClose }: { rt: any; models: any[]; onClose: () => void }) {
+  const { data: ecrData } = useEcrImages();
+  const { data: iamData } = useIamRoles();
+  const { data: vpcData } = useVpcResources();
+  const updateConfig = useUpdateRuntimeConfig();
+
+  const [containerUri, setContainerUri] = useState(rt.containerUri || '');
+  const [roleArn, setRoleArn] = useState(rt.roleArn || '');
+  const [modelId, setModelId] = useState(rt.model || '');
+  const [networkMode, setNetworkMode] = useState(rt.networkMode || 'PUBLIC');
+  const [securityGroupIds, setSecurityGroupIds] = useState<string[]>(rt.securityGroupIds || []);
+  const [subnetIds, setSubnetIds] = useState<string[]>(rt.subnetIds || []);
   const [idle, setIdle] = useState(rt.idleTimeoutSec || 900);
   const [maxLife, setMaxLife] = useState(rt.maxLifetimeSec || 28800);
   const [saving, setSaving] = useState(false);
-  const updateLifecycle = useUpdateRuntimeLifecycle();
+  const [error, setError] = useState('');
 
-  const isExec = rt.name?.toLowerCase().includes('exec') || rt.containerUri?.includes('exec');
-  const imageTag = rt.containerUri?.split('/').pop() || 'unknown';
-  const roleName = rt.roleArn?.split('/').pop() || rt.roleArn || '—';
-  const modelName = models.find(m => m.modelId === rt.model)?.modelName || rt.model || '—';
-  const isFullAccess = isExec;
+  const ecrImages = ecrData?.images || [];
+  const iamRoles = iamData?.roles || [];
+  const securityGroups = vpcData?.securityGroups || [];
+  const subnets = vpcData?.subnets || [];
+  const modelOptions = models.map(m => ({ label: `${m.modelName}`, value: m.modelId }));
+  const imageOptions = ecrImages.map(i => ({ label: `${i.repo}:${i.tag} (${fmtBytes(i.sizeBytes)})`, value: i.uri }));
+  const roleOptions = [
+    ...iamRoles.filter(r => r.relevant).map(r => ({ label: `${r.name} ★`, value: r.arn })),
+    ...iamRoles.filter(r => !r.relevant).map(r => ({ label: r.name, value: r.arn })),
+  ];
+  const sgOptions = securityGroups.map(sg => ({ label: `${sg.name} (${sg.id}) — ${sg.description.slice(0,40)}`, value: sg.id }));
+  const subnetOptions = subnets.map(s => ({ label: `${s.id} — ${s.az} ${s.cidr}`, value: s.id }));
+
+  const toggleSg = (id: string) => setSecurityGroupIds(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const toggleSubnet = (id: string) => setSubnetIds(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
   const handleSave = async () => {
-    setSaving(true);
+    setSaving(true); setError('');
     try {
-      await updateLifecycle.mutateAsync({ runtimeId: rt.id, idleTimeoutSec: idle, maxLifetimeSec: maxLife });
-      setEditing(false);
-    } catch {}
+      await updateConfig.mutateAsync({
+        runtimeId: rt.id, containerUri, roleArn, modelId,
+        networkMode, securityGroupIds, subnetIds, idleTimeoutSec: idle, maxLifetimeSec: maxLife,
+      });
+      onClose();
+    } catch (e: any) {
+      setError(e?.message || 'Update failed');
+    }
     setSaving(false);
   };
 
   return (
-    <Card className={`${isExec ? 'border-warning/30' : ''}`}>
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${isExec ? 'bg-warning/10' : 'bg-primary/10'}`}>
-            {isExec ? <Zap size={20} className="text-warning" /> : <Cpu size={20} className="text-primary" />}
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary">{rt.name}</h3>
-            <p className="text-xs text-text-muted">v{rt.version || '1'} · {rt.id?.slice(-8)}</p>
-          </div>
-        </div>
-        <Badge color={rt.status === 'READY' ? 'success' : 'warning'} dot>{rt.status || 'UNKNOWN'}</Badge>
-      </div>
-
-      <div className="space-y-2 mb-4">
-        {[
-          { label: 'Container', value: imageTag },
-          { label: 'Default Model', value: modelName,
-            extra: isExec ? <Badge color="warning">Executive</Badge> : null },
-          { label: 'IAM Role', value: roleName,
-            extra: <Badge color={isFullAccess ? 'danger' : 'info'}>{isFullAccess ? 'Full Access' : 'Scoped'}</Badge> },
-        ].map(row => (
-          <div key={row.label} className="flex items-center justify-between rounded-xl bg-surface-dim px-3 py-2">
-            <span className="text-xs text-text-muted">{row.label}</span>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-text-secondary">{row.value}</span>
-              {row.extra}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="border-t border-dark-border/30 pt-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-text-secondary flex items-center gap-1.5">
-            <Clock size={12} /> Lifecycle Settings
-          </span>
-          {editing ? (
-            <div className="flex gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}><X size={12} /></Button>
-              <Button size="sm" variant="primary" disabled={saving} onClick={handleSave}>
-                {saving ? <RefreshCw size={12} className="animate-spin" /> : <Save size={12} />}
-                {saving ? 'Saving' : 'Save'}
-              </Button>
-            </div>
-          ) : (
-            <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-              <Edit3 size={12} /> Edit
+    <Modal open={true} onClose={onClose} title={`Configure Runtime — ${rt.name}`}
+      footer={
+        <div className="flex items-center justify-between w-full">
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <div className="flex gap-3 ml-auto">
+            <Button variant="default" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled={saving} onClick={handleSave}>
+              {saving ? <><RefreshCw size={13} className="animate-spin" /> Saving…</> : <><Save size={13} /> Save & Update Runtime</>}
             </Button>
-          )}
-        </div>
-        {editing ? (
-          <div className="space-y-3">
-            <TimeSlider label="Idle timeout" value={idle} onChange={setIdle} />
-            <TimeSlider label="Max lifetime" value={maxLife} onChange={setMaxLife} />
           </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: 'Idle timeout', value: fmtTime(rt.idleTimeoutSec || 900), sub: 'No msg → microVM released' },
-              { label: 'Max lifetime', value: fmtTime(rt.maxLifetimeSec || 28800), sub: 'Force restart ceiling' },
-            ].map(s => (
-              <div key={s.label} className="rounded-xl bg-surface-dim px-3 py-2.5">
-                <p className="text-[10px] text-text-muted">{s.label}</p>
-                <p className="text-base font-bold text-text-primary">{s.value}</p>
-                <p className="text-[10px] text-text-muted">{s.sub}</p>
-              </div>
+        </div>
+      }>
+      <div className="space-y-5">
+        {/* Container Image */}
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-text-secondary">Container Image (ECR)</label>
+          {ecrImages.length > 0 ? (
+            <Select label="" value={containerUri} onChange={setContainerUri} options={imageOptions} placeholder="Select ECR image..." />
+          ) : (
+            <input value={containerUri} onChange={e => setContainerUri(e.target.value)}
+              className="w-full rounded-xl border border-dark-border/60 bg-surface-dim px-4 py-2.5 text-sm font-mono text-text-primary focus:border-primary/60 focus:outline-none"
+              placeholder="263168716248.dkr.ecr.us-east-1.amazonaws.com/repo:tag" />
+          )}
+          <p className="mt-1 text-[10px] text-text-muted font-mono truncate">{containerUri}</p>
+        </div>
+
+        {/* IAM Role */}
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-text-secondary">IAM Execution Role</label>
+          {iamRoles.length > 0 ? (
+            <Select label="" value={roleArn} onChange={setRoleArn} options={roleOptions} placeholder="Select IAM role..." />
+          ) : (
+            <input value={roleArn} onChange={e => setRoleArn(e.target.value)}
+              className="w-full rounded-xl border border-dark-border/60 bg-surface-dim px-4 py-2.5 text-xs font-mono text-text-primary focus:border-primary/60 focus:outline-none"
+              placeholder="arn:aws:iam::ACCOUNT:role/role-name" />
+          )}
+          <p className="mt-1 text-[10px] text-text-muted font-mono truncate">{roleArn}</p>
+        </div>
+
+        {/* Default Model */}
+        <Select label="Default Model" value={modelId} onChange={setModelId} options={modelOptions} placeholder="Select model..." />
+
+        {/* Lifecycle */}
+        <div className="space-y-3 rounded-xl bg-surface-dim p-4">
+          <p className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"><Clock size={12} /> Lifecycle</p>
+          <TimeSlider label="Idle timeout (no msg → microVM released)" value={idle} onChange={setIdle} />
+          <TimeSlider label="Max lifetime (force restart ceiling)" value={maxLife} onChange={setMaxLife} />
+        </div>
+
+        {/* Network Mode */}
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-text-secondary">Network Mode</label>
+          <div className="flex gap-2">
+            {['PUBLIC', 'VPC'].map(m => (
+              <button key={m} onClick={() => setNetworkMode(m)}
+                className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-medium border transition-colors ${networkMode === m ? 'border-primary bg-primary/10 text-primary-light' : 'border-dark-border bg-surface-dim text-text-muted hover:border-primary/40'}`}>
+                {m === 'PUBLIC' ? 'Public (no VPC)' : 'VPC'}
+              </button>
             ))}
           </div>
+        </div>
+
+        {/* VPC config — only shown for VPC mode */}
+        {networkMode === 'VPC' && (
+          <>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-text-secondary">Security Groups</label>
+                <a href={`https://console.aws.amazon.com/vpc/home?region=us-east-1#SecurityGroups:`} target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="ghost"><ExternalLink size={12} /> Create in AWS</Button>
+                </a>
+              </div>
+              {securityGroups.length === 0
+                ? <p className="text-xs text-text-muted">Loading security groups...</p>
+                : <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {securityGroups.map(sg => (
+                    <label key={sg.id} className={`flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer ${securityGroupIds.includes(sg.id) ? 'bg-primary/10 border border-primary/30' : 'bg-surface-dim hover:bg-dark-hover'}`}>
+                      <input type="checkbox" checked={securityGroupIds.includes(sg.id)} onChange={() => toggleSg(sg.id)} className="accent-primary" />
+                      <span className="text-xs font-medium">{sg.name}</span>
+                      <span className="text-[10px] text-text-muted font-mono">{sg.id}</span>
+                      {sg.relevant && <Badge color="primary">AgentCore</Badge>}
+                    </label>
+                  ))}
+                </div>
+              }
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-text-secondary">Subnets</label>
+                <a href={`https://console.aws.amazon.com/vpc/home?region=us-east-1#subnets:`} target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="ghost"><ExternalLink size={12} /> View in AWS</Button>
+                </a>
+              </div>
+              {subnets.length === 0
+                ? <p className="text-xs text-text-muted">Loading subnets...</p>
+                : <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {subnets.map(s => (
+                    <label key={s.id} className={`flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer ${subnetIds.includes(s.id) ? 'bg-primary/10 border border-primary/30' : 'bg-surface-dim hover:bg-dark-hover'}`}>
+                      <input type="checkbox" checked={subnetIds.includes(s.id)} onChange={() => toggleSubnet(s.id)} className="accent-primary" />
+                      <span className="text-xs font-medium font-mono">{s.id}</span>
+                      <span className="text-[10px] text-text-muted">{s.az} · {s.cidr}</span>
+                    </label>
+                  ))}
+                </div>
+              }
+            </div>
+          </>
         )}
       </div>
-    </Card>
+    </Modal>
+  );
+}
+
+// ─── Create Runtime Modal ─────────────────────────────────────────────────────
+
+function CreateRuntimeModal({ models, onClose }: { models: any[]; onClose: () => void }) {
+  const { data: ecrData } = useEcrImages();
+  const { data: iamData } = useIamRoles();
+  const { data: vpcData } = useVpcResources();
+  const createRuntime = useCreateRuntime();
+
+  const [name, setName] = useState('');
+  const [containerUri, setContainerUri] = useState('');
+  const [roleArn, setRoleArn] = useState('');
+  const [modelId, setModelId] = useState('global.amazon.nova-2-lite-v1:0');
+  const [networkMode, setNetworkMode] = useState('PUBLIC');
+  const [idle, setIdle] = useState(900);
+  const [maxLife, setMaxLife] = useState(28800);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const ecrImages = ecrData?.images || [];
+  const iamRoles = iamData?.roles || [];
+  const modelOptions = models.map(m => ({ label: m.modelName, value: m.modelId }));
+  const imageOptions = ecrImages.map(i => ({ label: `${i.repo}:${i.tag}`, value: i.uri }));
+  const roleOptions = [
+    ...iamRoles.filter(r => r.relevant).map(r => ({ label: `${r.name} ★`, value: r.arn })),
+    ...iamRoles.filter(r => !r.relevant).map(r => ({ label: r.name, value: r.arn })),
+  ];
+
+  const handleCreate = async () => {
+    if (!name || !containerUri || !roleArn) { setError('Name, container image, and IAM role are required'); return; }
+    setSaving(true); setError('');
+    try {
+      await createRuntime.mutateAsync({ name, containerUri, roleArn, modelId, networkMode, securityGroupIds: [], subnetIds: [], idleTimeoutSec: idle, maxLifetimeSec: maxLife });
+      onClose();
+    } catch (e: any) {
+      setError(e?.message || 'Create failed');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <Modal open={true} onClose={onClose} title="Create New AgentCore Runtime"
+      footer={
+        <div className="flex items-center justify-between w-full">
+          {error && <p className="text-xs text-danger flex-1">{error}</p>}
+          <div className="flex gap-3 ml-auto">
+            <Button variant="default" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled={saving} onClick={handleCreate}>
+              {saving ? <><RefreshCw size={13} className="animate-spin" /> Creating…</> : <><Plus size={13} /> Create Runtime</>}
+            </Button>
+          </div>
+        </div>
+      }>
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-text-secondary">Runtime Name</label>
+          <input value={name} onChange={e => setName(e.target.value)}
+            className="w-full rounded-xl border border-dark-border/60 bg-surface-dim px-4 py-2.5 text-sm text-text-primary focus:border-primary/60 focus:outline-none"
+            placeholder="e.g. openclaw_multitenancy_standard_runtime" />
+        </div>
+        {imageOptions.length > 0
+          ? <Select label="Container Image (ECR)" value={containerUri} onChange={setContainerUri} options={imageOptions} placeholder="Select image..." />
+          : <div><label className="mb-1.5 block text-xs font-semibold text-text-secondary">Container Image URI</label>
+              <input value={containerUri} onChange={e => setContainerUri(e.target.value)}
+                className="w-full rounded-xl border border-dark-border/60 bg-surface-dim px-4 py-2.5 text-xs font-mono text-text-primary focus:border-primary/60 focus:outline-none"
+                placeholder="263168716248.dkr.ecr.us-east-1.amazonaws.com/repo:tag" />
+            </div>}
+        {roleOptions.length > 0
+          ? <Select label="IAM Execution Role" value={roleArn} onChange={setRoleArn} options={roleOptions} placeholder="Select role..." />
+          : <div><label className="mb-1.5 block text-xs font-semibold text-text-secondary">IAM Role ARN</label>
+              <input value={roleArn} onChange={e => setRoleArn(e.target.value)}
+                className="w-full rounded-xl border border-dark-border/60 bg-surface-dim px-4 py-2.5 text-xs font-mono text-text-primary focus:border-primary/60 focus:outline-none"
+                placeholder="arn:aws:iam::ACCOUNT:role/..." />
+            </div>}
+        <Select label="Default Model" value={modelId} onChange={setModelId} options={modelOptions} />
+        <div className="space-y-3 rounded-xl bg-surface-dim p-4">
+          <p className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"><Clock size={12} /> Lifecycle</p>
+          <TimeSlider label="Idle timeout" value={idle} onChange={setIdle} />
+          <TimeSlider label="Max lifetime" value={maxLife} onChange={setMaxLife} />
+        </div>
+        <div className="rounded-xl bg-info/5 border border-info/20 px-3 py-2 text-xs text-info">
+          After creation, assign positions to this runtime in Security Center → Policies, and update SSM:
+          <code className="block mt-1 font-mono text-[10px]">/openclaw/STACK/tenants/EMP_ID/runtime-id</code>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Runtime Card ─────────────────────────────────────────────────────────────
+
+function RuntimeCard({ rt, models }: { rt: any; models: any[] }) {
+  const [showEdit, setShowEdit] = useState(false);
+  const isExec = rt.name?.toLowerCase().includes('exec') || rt.containerUri?.includes('exec');
+  const imageTag = rt.containerUri?.split('/').pop() || 'unknown';
+  const roleName = rt.roleArn?.split('/').pop() || '—';
+  const modelName = models.find(m => m.modelId === rt.model)?.modelName || rt.model?.split('/').pop()?.split(':')[0] || '—';
+  const networkMode = rt.networkMode || 'PUBLIC';
+
+  return (
+    <>
+      <Card className={`${isExec ? 'border-warning/30' : ''}`}>
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${isExec ? 'bg-warning/10' : 'bg-primary/10'}`}>
+              {isExec ? <Zap size={20} className="text-warning" /> : <Cpu size={20} className="text-primary" />}
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">{rt.name}</h3>
+              <p className="text-xs text-text-muted">v{rt.version || '1'} · {rt.id?.slice(-8)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge color={rt.status === 'READY' ? 'success' : 'warning'} dot>{rt.status || 'UNKNOWN'}</Badge>
+            <Button size="sm" variant="primary" onClick={() => setShowEdit(true)}>
+              <Edit3 size={12} /> Configure
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2 mb-4">
+          {[
+            { label: 'Container Image', value: imageTag,
+              extra: <a href={`https://console.aws.amazon.com/ecr/repositories?region=us-east-1`} target="_blank" rel="noreferrer"><ExternalLink size={11} className="text-text-muted hover:text-primary" /></a> },
+            { label: 'Default Model', value: modelName,
+              extra: isExec ? <Badge color="warning">Executive</Badge> : null },
+            { label: 'IAM Role', value: roleName,
+              extra: <><Badge color={isExec ? 'danger' : 'info'}>{isExec ? 'Full Access' : 'Scoped'}</Badge>
+                      <a href={`https://console.aws.amazon.com/iam/home#/roles/${roleName}`} target="_blank" rel="noreferrer"><ExternalLink size={11} className="text-text-muted hover:text-primary ml-1" /></a></> },
+            { label: 'Network', value: networkMode, extra: null },
+          ].map(row => (
+            <div key={row.label} className="flex items-center justify-between rounded-xl bg-surface-dim px-3 py-2">
+              <span className="text-xs text-text-muted">{row.label}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-mono text-text-secondary">{row.value}</span>
+                {row.extra}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-dark-border/30 pt-3 grid grid-cols-2 gap-2">
+          {[
+            { label: 'Idle timeout', value: fmtTime(rt.idleTimeoutSec || 900), sub: 'No msg → microVM released' },
+            { label: 'Max lifetime', value: fmtTime(rt.maxLifetimeSec || 28800), sub: 'Force restart ceiling' },
+          ].map(s => (
+            <div key={s.label} className="rounded-xl bg-surface-dim px-3 py-2.5">
+              <p className="text-[10px] text-text-muted">{s.label}</p>
+              <p className="text-base font-bold text-text-primary">{s.value}</p>
+              <p className="text-[10px] text-text-muted">{s.sub}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {showEdit && <RuntimeEditModal rt={rt} models={models} onClose={() => setShowEdit(false)} />}
+    </>
   );
 }
 
@@ -460,8 +682,9 @@ export default function SecurityCenter() {
   const { data: modelConfig } = useModelConfig();
   const { data: infra } = useInfrastructure();
 
-  const [soulTarget, setSoulTarget] = useState<any | null | undefined>(undefined); // undefined=closed, null=global
+  const [soulTarget, setSoulTarget] = useState<any | null | undefined>(undefined);
   const [toolsTarget, setToolsTarget] = useState<any | null>(null);
+  const [showCreateRuntime, setShowCreateRuntime] = useState(false);
 
   const runtimes = runtimesData?.runtimes || [];
   const models = modelConfig?.availableModels || [];
@@ -489,10 +712,15 @@ export default function SecurityCenter() {
         {/* ── Runtimes ── */}
         {tab === 'runtimes' && (
           <div className="space-y-6">
-            <div className="rounded-xl bg-info/5 border border-info/20 px-4 py-3 text-xs text-info">
-              Each Runtime has its own Docker image, IAM role, and lifecycle settings.
-              Employees route to runtimes based on their position.
-              Infrastructure-level isolation — IAM constraints cannot be bypassed by prompt injection.
+            <div className="flex items-center justify-between">
+              <div className="rounded-xl bg-info/5 border border-info/20 px-4 py-3 text-xs text-info flex-1 mr-4">
+                Each Runtime has its own Docker image, IAM role, and lifecycle settings.
+                Employees route to runtimes based on their position.
+                IAM constraints cannot be bypassed by prompt injection.
+              </div>
+              <Button variant="primary" onClick={() => setShowCreateRuntime(true)}>
+                <Plus size={15} /> New Runtime
+              </Button>
             </div>
 
             {rtLoading ? (
@@ -610,32 +838,35 @@ export default function SecurityCenter() {
         {/* ── Infrastructure ── */}
         {tab === 'infrastructure' && (
           <div className="space-y-6">
-            {/* IAM Roles */}
+            {/* ECR Images */}
             <Card>
-              <div className="flex items-center gap-2 mb-4">
-                <Key size={18} className="text-primary" />
-                <h3 className="text-sm font-semibold text-text-primary">IAM Roles</h3>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Package size={18} className="text-primary" />
+                  <h3 className="text-sm font-semibold text-text-primary">Docker Images (ECR)</h3>
+                  <Badge color="info">{infra?.ecrImages?.length || 0} images</Badge>
+                </div>
+                <a href="https://console.aws.amazon.com/ecr/repositories?region=us-east-1" target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="ghost"><ExternalLink size={13} /> Open ECR Console</Button>
+                </a>
               </div>
               {!infra ? (
                 <div className="flex items-center justify-center py-6"><RefreshCw size={18} className="animate-spin text-text-muted" /></div>
-              ) : infra.iamRoles[0]?.error ? (
-                <p className="text-xs text-danger">{infra.iamRoles[0].error}</p>
-              ) : infra.iamRoles.length === 0 ? (
-                <p className="text-xs text-text-muted">No matching IAM roles found</p>
+              ) : (infra.ecrImages || []).length === 0 ? (
+                <p className="text-xs text-text-muted py-4 text-center">No ECR images found</p>
               ) : (
                 <div className="space-y-2">
-                  {infra.iamRoles.map((r: any) => (
-                    <div key={r.arn} className="flex items-center justify-between rounded-xl bg-surface-dim px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-text-primary">{r.name}</p>
-                        <p className="text-xs text-text-muted font-mono truncate max-w-xs">{r.arn}</p>
+                  {(infra.ecrImages || []).map((img: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between rounded-xl bg-surface-dim px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-mono text-text-primary">{img.repo}:{img.tag}</p>
+                        <p className="text-xs text-text-muted font-mono">{img.digest} · {fmtBytes(img.sizeBytes)} · pushed {img.pushedAt?.slice(0, 10)}</p>
+                        <p className="text-[10px] text-text-muted mt-0.5 truncate">{img.uri}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge color={r.name.includes('exec') ? 'danger' : 'info'}>
-                          {r.name.includes('exec') ? 'Full Access' : 'Scoped'}
-                        </Badge>
-                        <a href={`https://console.aws.amazon.com/iam/home#/roles/${r.name}`} target="_blank" rel="noreferrer">
-                          <Button size="sm" variant="ghost"><ExternalLink size={12} /></Button>
+                      <div className="flex items-center gap-2 ml-4">
+                        <Badge color="success">Available</Badge>
+                        <a href={`https://console.aws.amazon.com/ecr/repositories/private/${img.uri?.split('/')[0]?.split('.')[0]}/${img.repo}?region=us-east-1`} target="_blank" rel="noreferrer">
+                          <Button size="sm" variant="ghost"><ExternalLink size={11} /></Button>
                         </a>
                       </div>
                     </div>
@@ -644,59 +875,117 @@ export default function SecurityCenter() {
               )}
             </Card>
 
-            {/* ECR Images */}
+            {/* IAM Roles */}
             <Card>
-              <div className="flex items-center gap-2 mb-4">
-                <Package size={18} className="text-primary" />
-                <h3 className="text-sm font-semibold text-text-primary">Docker Images (ECR)</h3>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Key size={18} className="text-primary" />
+                  <h3 className="text-sm font-semibold text-text-primary">IAM Roles</h3>
+                  <Badge color="info">{(infra?.iamRoles || []).filter((r: any) => r.relevant).length} AgentCore</Badge>
+                </div>
+                <a href="https://console.aws.amazon.com/iam/home#/roles" target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="ghost"><ExternalLink size={13} /> Open IAM Console</Button>
+                </a>
               </div>
               {!infra ? (
                 <div className="flex items-center justify-center py-6"><RefreshCw size={18} className="animate-spin text-text-muted" /></div>
-              ) : infra.ecrImages[0]?.error ? (
-                <p className="text-xs text-danger">{infra.ecrImages[0].error}</p>
-              ) : infra.ecrImages.length === 0 ? (
-                <p className="text-xs text-text-muted">No ECR images found in openclaw repositories</p>
               ) : (
-                <div className="space-y-2">
-                  {infra.ecrImages.map((img: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between rounded-xl bg-surface-dim px-4 py-3">
+                <div className="space-y-1.5">
+                  {/* AgentCore roles first */}
+                  {(infra.iamRoles || []).filter((r: any) => r.relevant).map((r: any) => (
+                    <div key={r.arn} className="flex items-center justify-between rounded-xl bg-primary/5 border border-primary/20 px-4 py-3">
                       <div>
-                        <p className="text-sm font-mono text-text-primary">{img.repo}:{img.tag}</p>
-                        <p className="text-xs text-text-muted">{img.digest} · {fmtBytes(img.sizeBytes)} · pushed {img.pushedAt?.slice(0, 10)}</p>
+                        <p className="text-sm font-medium text-text-primary">{r.name}</p>
+                        <p className="text-[10px] text-text-muted font-mono">{r.arn}</p>
                       </div>
-                      <Badge color="success">Available</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge color={r.name.includes('exec') ? 'danger' : 'info'}>{r.name.includes('exec') ? 'Full Access' : 'Scoped'}</Badge>
+                        <a href={`https://console.aws.amazon.com/iam/home#/roles/${r.name}`} target="_blank" rel="noreferrer">
+                          <Button size="sm" variant="ghost"><ExternalLink size={11} /></Button>
+                        </a>
+                      </div>
                     </div>
                   ))}
+                  {/* Other roles collapsed */}
+                  {(infra.iamRoles || []).filter((r: any) => !r.relevant).length > 0 && (
+                    <details className="group">
+                      <summary className="text-xs text-text-muted cursor-pointer px-4 py-2 hover:text-text-primary">
+                        + {(infra.iamRoles || []).filter((r: any) => !r.relevant).length} other roles
+                      </summary>
+                      <div className="space-y-1 mt-1">
+                        {(infra.iamRoles || []).filter((r: any) => !r.relevant).map((r: any) => (
+                          <div key={r.arn} className="flex items-center justify-between rounded-xl bg-surface-dim px-4 py-2.5">
+                            <div>
+                              <p className="text-sm text-text-secondary">{r.name}</p>
+                              <p className="text-[10px] text-text-muted font-mono">{r.arn}</p>
+                            </div>
+                            <a href={`https://console.aws.amazon.com/iam/home#/roles/${r.name}`} target="_blank" rel="noreferrer">
+                              <Button size="sm" variant="ghost"><ExternalLink size={11} /></Button>
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
               )}
             </Card>
 
-            {/* VPC Security Groups */}
+            {/* VPC / Security Groups */}
             <Card>
-              <div className="flex items-center gap-2 mb-4">
-                <Network size={18} className="text-primary" />
-                <h3 className="text-sm font-semibold text-text-primary">VPC Security Groups</h3>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Network size={18} className="text-primary" />
+                  <h3 className="text-sm font-semibold text-text-primary">VPC & Security Groups</h3>
+                </div>
+                <div className="flex gap-2">
+                  <a href="https://console.aws.amazon.com/vpc/home?region=us-east-1#SecurityGroups:" target="_blank" rel="noreferrer">
+                    <Button size="sm" variant="ghost"><ExternalLink size={13} /> Create SG</Button>
+                  </a>
+                  <a href="https://console.aws.amazon.com/vpc/home?region=us-east-1#vpcs:" target="_blank" rel="noreferrer">
+                    <Button size="sm" variant="ghost"><ExternalLink size={13} /> VPC Console</Button>
+                  </a>
+                </div>
               </div>
               {!infra ? (
                 <div className="flex items-center justify-center py-6"><RefreshCw size={18} className="animate-spin text-text-muted" /></div>
-              ) : infra.securityGroups[0]?.error ? (
-                <p className="text-xs text-danger">{infra.securityGroups[0].error}</p>
-              ) : infra.securityGroups.length === 0 ? (
-                <div className="text-center py-6">
-                  <Network size={28} className="mx-auto mb-2 text-text-muted opacity-30" />
-                  <p className="text-xs text-text-muted">No matching security groups found.</p>
-                  <p className="text-xs text-text-muted mt-1">AgentCore PUBLIC mode runtimes do not use custom security groups.</p>
-                </div>
               ) : (
-                <div className="space-y-2">
-                  {infra.securityGroups.map((sg: any) => (
-                    <div key={sg.id} className="flex items-center justify-between rounded-xl bg-surface-dim px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-text-primary">{sg.name}</p>
-                        <p className="text-xs text-text-muted">{sg.id} · {sg.vpcId} · {sg.description}</p>
-                      </div>
+                <div className="space-y-3">
+                  {/* VPCs */}
+                  <div>
+                    <p className="text-xs font-medium text-text-muted mb-2">VPCs ({(infra.vpcs || []).length})</p>
+                    <div className="space-y-1.5">
+                      {(infra.vpcs || []).map((v: any) => (
+                        <div key={v.id} className={`flex items-center justify-between rounded-xl px-4 py-2.5 ${v.isDefault ? 'bg-surface-dim' : 'bg-primary/5 border border-primary/20'}`}>
+                          <div>
+                            <p className="text-sm font-medium text-text-primary">{v.name}</p>
+                            <p className="text-xs text-text-muted font-mono">{v.id} · {v.cidr}</p>
+                          </div>
+                          <Badge color={v.isDefault ? 'default' : 'primary'}>{v.isDefault ? 'Default' : 'Custom'}</Badge>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                  {/* Security Groups */}
+                  <div>
+                    <p className="text-xs font-medium text-text-muted mb-2">Security Groups ({(infra.securityGroups || []).length})</p>
+                    <div className="space-y-1.5">
+                      {(infra.securityGroups || []).map((sg: any) => (
+                        <div key={sg.id} className={`flex items-center justify-between rounded-xl px-4 py-2.5 ${sg.relevant ? 'bg-primary/5 border border-primary/20' : 'bg-surface-dim'}`}>
+                          <div>
+                            <p className="text-sm font-medium text-text-primary">{sg.name}</p>
+                            <p className="text-xs text-text-muted">{sg.id} · {sg.description?.slice(0, 50)}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {sg.relevant && <Badge color="primary">AgentCore</Badge>}
+                            <a href={`https://console.aws.amazon.com/vpc/home?region=us-east-1#SecurityGroup:groupId=${sg.id}`} target="_blank" rel="noreferrer">
+                              <Button size="sm" variant="ghost"><ExternalLink size={11} /></Button>
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </Card>
@@ -708,10 +997,13 @@ export default function SecurityCenter() {
       {soulTarget !== undefined && (
         <SoulEditModal pos={soulTarget} onClose={() => setSoulTarget(undefined)} />
       )}
-
       {/* Tools Edit Modal */}
       {toolsTarget && (
         <ToolsEditModal pos={toolsTarget} onClose={() => setToolsTarget(null)} />
+      )}
+      {/* Create Runtime Modal */}
+      {showCreateRuntime && (
+        <CreateRuntimeModal models={models} onClose={() => setShowCreateRuntime(false)} />
       )}
     </div>
   );

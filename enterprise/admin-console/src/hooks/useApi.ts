@@ -662,7 +662,7 @@ export function useUpdateRuntimeLifecycle() {
 }
 
 export function useInfrastructure() {
-  return useQuery<{ iamRoles: any[]; ecrImages: any[]; securityGroups: any[] }>({
+  return useQuery<{ iamRoles: any[]; ecrImages: any[]; securityGroups: any[]; vpcs: any[]; subnets: any[] }>({
     queryKey: ['security-infrastructure'],
     queryFn: () => api.get('/security/infrastructure'),
     staleTime: 60_000,
@@ -705,5 +705,70 @@ export function useSystemStats() {
     queryKey: ['system-stats'],
     queryFn: () => api.get('/settings/system-stats'),
     refetchInterval: 10_000,
+  });
+}
+
+// ── Fine-grained security resource hooks ─────────────────────────────────────
+
+export interface EcrImage {
+  uri: string; repo: string; tag: string;
+  digest: string; sizeBytes: number; pushedAt: string;
+}
+
+export function useEcrImages() {
+  return useQuery<{ images: EcrImage[]; error?: string }>({
+    queryKey: ['ecr-images'],
+    queryFn: () => api.get('/security/ecr-images'),
+    staleTime: 60_000,
+  });
+}
+
+export interface IamRole {
+  name: string; arn: string; relevant: boolean; created: string;
+}
+
+export function useIamRoles() {
+  return useQuery<{ roles: IamRole[]; error?: string }>({
+    queryKey: ['iam-roles'],
+    queryFn: () => api.get('/security/iam-roles'),
+    staleTime: 120_000,
+  });
+}
+
+export interface VpcResource {
+  vpcs: { id: string; name: string; cidr: string; isDefault: boolean }[];
+  subnets: { id: string; name: string; vpcId: string; az: string; cidr: string; public: boolean }[];
+  securityGroups: { id: string; name: string; description: string; vpcId: string; relevant: boolean }[];
+}
+
+export function useVpcResources() {
+  return useQuery<VpcResource>({
+    queryKey: ['vpc-resources'],
+    queryFn: () => api.get('/security/vpc-resources'),
+    staleTime: 120_000,
+  });
+}
+
+export function useUpdateRuntimeConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      runtimeId: string; containerUri?: string; roleArn?: string;
+      networkMode?: string; securityGroupIds?: string[]; subnetIds?: string[];
+      modelId?: string; idleTimeoutSec?: number; maxLifetimeSec?: number;
+    }) => api.put(`/security/runtimes/${data.runtimeId}/config`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['security-runtimes'] }),
+  });
+}
+
+export function useCreateRuntime() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      name: string; containerUri: string; roleArn: string;
+      networkMode: string; securityGroupIds: string[]; subnetIds: string[];
+      modelId: string; idleTimeoutSec: number; maxLifetimeSec: number;
+    }) => api.post('/security/runtimes/create', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['security-runtimes'] }),
   });
 }

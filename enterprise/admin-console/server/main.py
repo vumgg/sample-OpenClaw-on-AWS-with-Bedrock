@@ -3810,57 +3810,238 @@ def update_runtime_lifecycle(runtime_id: str, body: dict, authorization: str = H
     except Exception as e:
         raise HTTPException(500, str(e))
 
-@app.get("/api/v1/security/infrastructure")
-def get_infrastructure(authorization: str = Header(default="")):
+
+@app.put("/api/v1/security/runtimes/{runtime_id}/config")
+def update_runtime_config(runtime_id: str, body: dict, authorization: str = Header(default="")):
+    """Full runtime config update: image, roleArn, security groups, model, lifecycle."""
     _require_role(authorization, roles=["admin"])
-    import boto3 as _b3i
-    result = {"iamRoles": [], "ecrImages": [], "securityGroups": []}
-    # IAM Roles — filter to agentcore
     try:
-        iam = _b3i.client("iam")
+        import boto3 as _b3rc
+        ac = _b3rc.client("bedrock-agentcore-control", region_name="us-east-1")
+        detail = ac.get_agent_runtime(agentRuntimeId=runtime_id)
+
+        # Build updated artifact
+        container_uri = body.get("containerUri") or detail["agentRuntimeArtifact"]["containerConfiguration"]["containerUri"]
+        artifact = {"containerConfiguration": {"containerUri": container_uri}}
+
+        # Build updated network config
+        network_mode = body.get("networkMode", detail.get("networkConfiguration", {}).get("networkMode", "PUBLIC"))
+        network_cfg: dict = {"networkMode": network_mode}
+        if network_mode == "VPC":
+            sg_ids = body.get("securityGroupIds", [])
+            subnet_ids = body.get("subnetIds", [])
+            if sg_ids and subnet_ids:
+                network_cfg["networkModeConfig"] = {"securityGroups": sg_ids, "subnets": subnet_ids}
+
+        # Build updated environment variables
+        existing_env = detail.get("environmentVariables", {})
+        new_env = dict(existing_env)
+        if body.get("modelId"):
+            new_env["BEDROCK_MODEL_ID"] = body["modelId"]
+            # Also update DynamoDB so agents pick it up on cold start
+            try:
+                import boto3 as _b3ddb
+                _b3ddb.resource("dynamodb", region_name=os.environ.get("DYNAMODB_REGION", "us-east-2")).Table(
+                    os.environ.get("DYNAMODB_TABLE", "openclaw-enterprise")
+                )
+            except Exception:
+                pass
+
+        role_arn = body.get("roleArn") or detail["roleArn"]
+        idle = body.get("idleTimeoutSec") or detail.get("lifecycleConfiguration", {}).get("idleRuntimeSessionTimeout", 900)
+        max_life = body.get("maxLifetimeSec") or detail.get("lifecycleConfiguration", {}).get("maxLifetime", 28800)
+
+        kwargs: dict = {
+            "agentRuntimeId": runtime_id,
+            "agentRuntimeArtifact": artifact,
+            "roleArn": role_arn,
+            "networkConfiguration": network_cfg,
+            "lifecycleConfiguration": {"idleRuntimeSessionTimeout": idle, "maxLifetime": max_life},
+        }
+        if new_env:
+            kwargs["environmentVariables"] = new_env
+        if detail.get("protocolConfiguration"):
+            kwargs["protocolConfiguration"] = detail["protocolConfiguration"]
+
+        ac.update_agent_runtime(**kwargs)
+        return {"saved": True, "runtimeId": runtime_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+class CreateRuntimeRequest(BaseModel):
+    name: str
+    containerUri: str
+    roleArn: str
+    networkMode: str = "PUBLIC"
+    securityGroupIds: list = []
+    subnetIds: list = []
+    modelId: str = "global.amazon.nova-2-lite-v1:0"
+    idleTimeoutSec: int = 900
+    maxLifetimeSec: int = 28800
+
+
+@app.post("/api/v1/security/runtimes/create")
+def create_runtime(body: CreateRuntimeRequest, authorization: str = Header(default="")):
+    """Create a new AgentCore runtime."""
+    _require_role(authorization, roles=["admin"])
+    try:
+        import boto3 as _b3cr
+        ac = _b3cr.client("bedrock-agentcore-control", region_name="us-east-1")
+
+        network_cfg: dict = {"networkMode": body.networkMode}
+        if body.networkMode == "VPC" and body.securityGroupIds and body.subnetIds:
+            network_cfg["networkModeConfig"] = {
+                "securityGroups": body.securityGroupIds,
+                "subnets": body.subnetIds,
+            }
+
+        stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
+        bucket = os.environ.get("S3_BUCKET", "openclaw-tenants-263168716248")
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        ddb_region = os.environ.get("DYNAMODB_REGION", "us-east-2")
+        ddb_table = os.environ.get("DYNAMODB_TABLE", "openclaw-enterprise")
+
+        resp = ac.create_agent_runtime(
+            agentRuntimeName=body.name,
+            agentRuntimeArtifact={"containerConfiguration": {"containerUri": body.containerUri}},
+            roleArn=body.roleArn,
+            networkConfiguration=network_cfg,
+            lifecycleConfiguration={"idleRuntimeSessionTimeout": body.idleTimeoutSec, "maxLifetime": body.maxLifetimeSec},
+            protocolConfiguration={"serverProtocol": "HTTP"},
+            environmentVariables={
+                "BEDROCK_MODEL_ID": body.modelId,
+                "AWS_REGION": region,
+                "STACK_NAME": stack,
+                "S3_BUCKET": bucket,
+                "DYNAMODB_TABLE": ddb_table,
+                "DYNAMODB_REGION": ddb_region,
+            },
+        )
+        return {"created": True, "runtimeId": resp.get("agentRuntimeId", ""), "status": resp.get("status", "")}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ── Separate resource endpoints for dropdowns ──────────────────────────────
+
+@app.get("/api/v1/security/ecr-images")
+def list_ecr_images(authorization: str = Header(default="")):
+    """List all ECR repos and their tagged images for runtime image selector."""
+    _require_role(authorization, roles=["admin"])
+    import boto3 as _b3ecr
+    ecr = _b3ecr.client("ecr", region_name="us-east-1")
+    account = boto3.client("sts").get_caller_identity()["Account"]
+    result = []
+    try:
+        repos = ecr.describe_repositories().get("repositories", [])
+        for repo in repos:
+            try:
+                imgs = ecr.describe_images(
+                    repositoryName=repo["repositoryName"],
+                    filter={"tagStatus": "TAGGED"}
+                ).get("imageDetails", [])
+                # Sort by push date descending
+                imgs.sort(key=lambda x: x.get("imagePushedAt", ""), reverse=True)
+                for img in imgs:
+                    for tag in (img.get("imageTags") or ["latest"]):
+                        pushed = img.get("imagePushedAt")
+                        result.append({
+                            "uri": f"{repo['repositoryUri']}:{tag}",
+                            "repo": repo["repositoryName"],
+                            "tag": tag,
+                            "digest": (img.get("imageDigest", ""))[:20],
+                            "sizeBytes": img.get("imageSizeInBytes", 0),
+                            "pushedAt": pushed.isoformat() if hasattr(pushed, "isoformat") else str(pushed or ""),
+                        })
+            except Exception:
+                pass
+    except Exception as e:
+        return {"images": [], "error": str(e)}
+    return {"images": result}
+
+
+@app.get("/api/v1/security/iam-roles")
+def list_iam_roles(authorization: str = Header(default="")):
+    """List IAM roles — all roles, agentcore/openclaw roles flagged."""
+    _require_role(authorization, roles=["admin"])
+    import boto3 as _b3iam
+    iam = _b3iam.client("iam")
+    result = []
+    try:
         paginator = iam.get_paginator("list_roles")
         for page in paginator.paginate():
             for r in page["Roles"]:
-                if "agentcore" in r["RoleName"].lower() or "openclaw" in r["RoleName"].lower():
-                    result["iamRoles"].append({
-                        "name": r["RoleName"], "arn": r["Arn"],
-                        "created": r["CreateDate"].isoformat() if hasattr(r["CreateDate"], "isoformat") else str(r["CreateDate"]),
-                    })
+                name_lower = r["RoleName"].lower()
+                relevant = "agentcore" in name_lower or "openclaw" in name_lower or "bedrock" in name_lower
+                result.append({
+                    "name": r["RoleName"],
+                    "arn": r["Arn"],
+                    "relevant": relevant,
+                    "created": r["CreateDate"].isoformat() if hasattr(r["CreateDate"], "isoformat") else str(r["CreateDate"]),
+                })
+        result.sort(key=lambda r: (not r["relevant"], r["name"]))
     except Exception as e:
-        result["iamRoles"] = [{"error": str(e)}]
-    # ECR images
+        return {"roles": [], "error": str(e)}
+    return {"roles": result}
+
+
+@app.get("/api/v1/security/vpc-resources")
+def list_vpc_resources(authorization: str = Header(default="")):
+    """List VPCs, subnets, and security groups for runtime network config."""
+    _require_role(authorization, roles=["admin"])
+    import boto3 as _b3vpc
+    ec2 = _b3vpc.client("ec2", region_name="us-east-1")
+    result = {"vpcs": [], "subnets": [], "securityGroups": []}
     try:
-        ecr = _b3i.client("ecr", region_name="us-east-1")
-        repos = ecr.describe_repositories().get("repositories", [])
-        for repo in repos:
-            if "openclaw" in repo["repositoryName"] or "multitenancy" in repo["repositoryName"]:
-                try:
-                    imgs = ecr.describe_images(repositoryName=repo["repositoryName"],
-                                               filter={"tagStatus": "TAGGED"}).get("imageDetails", [])
-                    for img in imgs[:3]:
-                        result["ecrImages"].append({
-                            "repo": repo["repositoryName"],
-                            "tag": (img.get("imageTags") or ["latest"])[0],
-                            "digest": img.get("imageDigest", "")[:19] + "…",
-                            "sizeBytes": img.get("imageSizeInBytes", 0),
-                            "pushedAt": img.get("imagePushedAt", "").isoformat() if hasattr(img.get("imagePushedAt", ""), "isoformat") else "",
-                        })
-                except Exception:
-                    pass
+        vpcs = ec2.describe_vpcs()["Vpcs"]
+        for v in vpcs:
+            name = next((t["Value"] for t in v.get("Tags", []) if t["Key"] == "Name"), v["VpcId"])
+            result["vpcs"].append({
+                "id": v["VpcId"], "name": name,
+                "cidr": v["CidrBlock"], "isDefault": v.get("IsDefault", False),
+            })
     except Exception as e:
-        result["ecrImages"] = [{"error": str(e)}]
-    # VPC security groups
+        result["vpcs"] = [{"error": str(e)}]
     try:
-        ec2 = _b3i.client("ec2", region_name="us-east-1")
-        sgs = ec2.describe_security_groups(Filters=[{"Name": "group-name", "Values": ["*agentcore*", "*openclaw*"]}]).get("SecurityGroups", [])
+        subnets = ec2.describe_subnets()["Subnets"]
+        for s in subnets:
+            name = next((t["Value"] for t in s.get("Tags", []) if t["Key"] == "Name"), s["SubnetId"])
+            result["subnets"].append({
+                "id": s["SubnetId"], "name": name, "vpcId": s["VpcId"],
+                "az": s["AvailabilityZone"], "cidr": s["CidrBlock"],
+                "public": s.get("MapPublicIpOnLaunch", False),
+            })
+    except Exception as e:
+        result["subnets"] = [{"error": str(e)}]
+    try:
+        sgs = ec2.describe_security_groups()["SecurityGroups"]
         for sg in sgs:
             result["securityGroups"].append({
                 "id": sg["GroupId"], "name": sg["GroupName"],
                 "description": sg["Description"], "vpcId": sg.get("VpcId", ""),
+                "relevant": any(kw in sg["GroupName"].lower() for kw in ["agentcore", "openclaw", "bedrock"]),
             })
+        result["securityGroups"].sort(key=lambda s: (not s["relevant"], s["name"]))
     except Exception as e:
         result["securityGroups"] = [{"error": str(e)}]
     return result
+
+
+@app.get("/api/v1/security/infrastructure")
+def get_infrastructure(authorization: str = Header(default="")):
+    """Aggregate view: ECR + IAM + VPC for Infrastructure tab."""
+    _require_role(authorization, roles=["admin"])
+    ecr_data = list_ecr_images(authorization)
+    iam_data = list_iam_roles(authorization)
+    vpc_data = list_vpc_resources(authorization)
+    return {
+        "ecrImages": ecr_data.get("images", []),
+        "iamRoles": iam_data.get("roles", []),
+        "securityGroups": vpc_data.get("securityGroups", []),
+        "vpcs": vpc_data.get("vpcs", []),
+        "subnets": vpc_data.get("subnets", []),
+    }
 
 # =========================================================================
 # Settings — Admin Account, Admin Assistant, System Stats
