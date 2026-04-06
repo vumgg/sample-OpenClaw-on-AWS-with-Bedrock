@@ -31,7 +31,7 @@ const ADMIN_NAV: NavItem[] = [
       { label: 'Department Tree', href: '/org/departments' },
       { label: 'Positions', href: '/org/positions' },
       { label: 'Employees', href: '/org/employees' },
-      { label: 'Bindings & Routing', href: '/bindings' },
+      { label: 'Agent Assignments', href: '/bindings' },
     ],
   },
   { label: 'Agent Factory', href: '/agents', icon: <Bot size={20} /> },
@@ -55,7 +55,7 @@ const MANAGER_NAV: NavItem[] = [
     label: 'My Team', icon: <Building2 size={20} />,
     children: [
       { label: 'Employees', href: '/org/employees' },
-      { label: 'Bindings & Routing', href: '/bindings' },
+      { label: 'Agent Assignments', href: '/bindings' },
     ],
   },
   { label: 'Approvals', href: '/approvals', icon: <CheckCircle size={20} /> },
