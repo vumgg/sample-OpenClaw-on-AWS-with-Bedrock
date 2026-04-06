@@ -166,16 +166,20 @@ openclaw gateway --port 18789 > /tmp/openclaw-gateway.log 2>&1 &
 GATEWAY_PID=$!
 echo "[entrypoint] OpenClaw Gateway PID=${GATEWAY_PID}"
 
-# Wait up to 20s for Gateway to start listening (V8 cache makes this ~2-3s)
+# Wait up to 30s for Gateway to start listening
+# Use curl instead of ss (ss may not exist in slim images)
 GATEWAY_READY=false
-for i in $(seq 1 20); do
-    if ss -tlnp 2>/dev/null | grep -q ":18789"; then
+for i in $(seq 1 30); do
+    if curl -sf --connect-timeout 1 http://127.0.0.1:18789/__openclaw/control-ui-config.json >/dev/null 2>&1; then
         echo "[entrypoint] Gateway ready on port 18789 (${i}s)"
         GATEWAY_READY=true
         break
     fi
     sleep 1
 done
+if [ "$GATEWAY_READY" = "false" ]; then
+    echo "[entrypoint] WARNING: Gateway not ready after 30s (may still be starting)"
+fi
 
 # Auto-pair Control UI and store the dashboard URL token in SSM.
 # `openclaw dashboard --no-open` outputs a URL with #token=xxx which is the
