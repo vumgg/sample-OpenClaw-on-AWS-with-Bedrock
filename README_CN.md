@@ -284,7 +284,7 @@ WhatsApp 和 Telegram 支持语音消息 — OpenClaw 会转录并回复。
 | **cn-north-1（北京）** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://cn-north-1.console.amazonaws.cn/cloudformation/home?region=cn-north-1#/stacks/create/review?stackName=openclaw-china&templateURL=https://sharefile-jiade.s3.cn-northwest-1.amazonaws.com.cn/clawdbot-china.yaml) |
 | **cn-northwest-1（宁夏）** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://cn-northwest-1.console.amazonaws.cn/cloudformation/home?region=cn-northwest-1#/stacks/create/review?stackName=openclaw-china&templateURL=https://sharefile-jiade.s3.cn-northwest-1.amazonaws.com.cn/clawdbot-china.yaml) |
 
-**[→ 中国区部署指南](DEPLOYMENT_CN.md)**
+**[→ 中国区部署指南](docs/DEPLOYMENT_CHINA_REGION.md)**
 
 ---
 
