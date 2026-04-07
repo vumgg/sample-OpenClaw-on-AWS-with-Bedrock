@@ -1104,7 +1104,7 @@ class AgentCoreHandler(BaseHTTPRequestHandler):
             env["PATH"] = "/usr/local/bin:/usr/bin:/bin:" + env.get("PATH", "")
             result = subprocess.run(
                 [OPENCLAW_BIN, "dashboard", "--no-open"],
-                capture_output=True, text=True, timeout=15, env=env,
+                capture_output=True, text=True, timeout=45, env=env,
             )
             output = result.stdout + result.stderr
             # Extract URL: "Dashboard URL: http://127.0.0.1:18789/#token=abc123..."

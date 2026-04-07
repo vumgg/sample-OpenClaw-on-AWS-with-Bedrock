@@ -252,7 +252,7 @@ def get_gateway_dashboard(authorization: str = Header(default="")):
     base_url, gw_token = result
     # Call container's /gateway-dashboard API (port 8080)
     try:
-        resp = _requests.get(f"{base_url}/gateway-dashboard", timeout=15)
+        resp = _requests.get(f"{base_url}/gateway-dashboard", timeout=50)
         if resp.status_code == 200:
             data = resp.json()
             return {
