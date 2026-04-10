@@ -333,33 +333,24 @@ Built on top of the Multi-Tenant AgentCore Runtime, the Enterprise platform adds
 **Quick start (Terraform — full stack):**
 
 ```bash
-# 1. Build images (mirrors to China ECR if cn- region)
-bash eks/scripts/china-image-mirror.sh --region us-west-2 --name openclaw-prod
+# 1. Mirror images (China only — run before terraform apply)
+# bash eks/scripts/china-image-mirror.sh --region cn-northwest-1 --name openclaw-cn --profile china
 
-# 2. Deploy VPC + EKS + Operator + Admin Console + Ingress
+# 2. Deploy VPC + EKS + Operator
 cd eks/terraform && terraform apply \
   -var="name=openclaw-prod" \
-  -var="enable_admin_console=true" \
-  -var="enable_alb_controller=true" \
-  -var="admin_password=YOUR_PASSWORD"
-```
+  -var="enable_efs=true"
 
-**Quick start (existing cluster):**
-
-```bash
-cd enterprise/admin-console
-bash deploy-eks.sh --cluster YOUR_CLUSTER --region us-west-2 --password YOUR_PASSWORD
+# 3. Deploy an OpenClaw instance
+kubectl apply -f eks/manifests/examples/openclaw-bedrock-instance.yaml
 ```
 
 | Feature | Details |
 |---------|---------|
-| **Full Terraform stack** | VPC, EKS, EFS, ALB Controller, Operator, Admin Console — one `terraform apply` |
-| **Helm chart packaging** | ServiceAccount, RBAC, Deployment, Service, Ingress — `enterprise/admin-console/chart/` |
-| **Internet access** | ALB Ingress (enabled by default in Terraform), custom domain + HTTPS via ACM |
-| **Three runtimes** | Serverless (AgentCore) + ECS (Fargate) + **EKS (CRD-managed pods)** |
+| **Full Terraform stack** | VPC, EKS, EFS, OpenClaw Operator — one `terraform apply` |
 | **Operator-managed** | OpenClaw Operator watches CRDs → StatefulSet + Service + PVC + ConfigMap |
-| **Deploy UI** | Agent Factory → EKS → Deploy Agent modal (model, resources, storage, sidecars) |
-| **China region support** | `china-image-mirror.sh` mirrors images to China ECR, `globalRegistry` CRD override |
+| **Optional modules** | ALB Controller, Kata Containers (Firecracker), Prometheus + Grafana, LiteLLM |
+| **China region support** | `china-image-mirror.sh` mirrors images + Helm charts to China ECR |
 | **Integration test** | `eks/scripts/integration-test.sh` — validates full deploy/reload/stop cycle |
 
 **[→ EKS Deployment Guide (EN)](docs/DEPLOYMENT_EKS.md)** · **[→ EKS 部署指南 (中文)](docs/DEPLOYMENT_EKS_CN.md)**

@@ -270,22 +270,16 @@ WhatsApp 和 Telegram 支持语音消息 — OpenClaw 会转录并回复。
 **快速开始（Terraform — 全栈部署）：**
 
 ```bash
-# 1. 构建镜像（如果是 cn- 区域，会自动镜像到中国 ECR）
-bash eks/scripts/china-image-mirror.sh --region us-west-2 --name openclaw-prod
+# 1. 中国区域需先同步镜像（全球区域跳过此步骤）
+# bash eks/scripts/china-image-mirror.sh --region cn-northwest-1 --name openclaw-cn --profile china
 
-# 2. 部署 VPC + EKS + Operator + 管理控制台 + Ingress
+# 2. 部署 VPC + EKS + Operator
 cd eks/terraform && terraform apply \
   -var="name=openclaw-prod" \
-  -var="enable_admin_console=true" \
-  -var="enable_alb_controller=true" \
-  -var="admin_password=YOUR_PASSWORD"
-```
+  -var="enable_efs=true"
 
-**快速开始（已有集群）：**
-
-```bash
-cd enterprise/admin-console
-bash deploy-eks.sh --cluster YOUR_CLUSTER --region us-west-2 --password YOUR_PASSWORD
+# 3. 部署 OpenClaw 实例
+kubectl apply -f eks/manifests/examples/openclaw-bedrock-instance.yaml
 ```
 
 | 功能 | 详情 |

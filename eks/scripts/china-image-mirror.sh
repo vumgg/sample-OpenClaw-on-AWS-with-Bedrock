@@ -49,6 +49,9 @@ PLATFORM=""
 
 # Operator version — keep in sync with eks/terraform/modules/operator/variables.tf
 OPERATOR_VERSION="0.26.2"
+# OpenClaw version — pin to a known stable release (latest may have regressions)
+# Override via env: OPENCLAW_VERSION=2026.4.5 bash china-image-mirror.sh ...
+OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.4.2}"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -94,7 +97,7 @@ success "ECR login"
 MIRROR_IMAGES=(
   # ── OpenClaw Operator workload images ──
   # Core — always needed for OpenClawInstance pods
-  "ghcr.io/openclaw/openclaw:latest|openclaw/openclaw:latest"
+  "ghcr.io/openclaw/openclaw:${OPENCLAW_VERSION}|openclaw/openclaw:${OPENCLAW_VERSION}"
   "ghcr.io/astral-sh/uv:0.6-bookworm-slim|astral-sh/uv:0.6-bookworm-slim"
   "busybox:1.37|library/busybox:1.37"
   "nginx:1.27-alpine|library/nginx:1.27-alpine"

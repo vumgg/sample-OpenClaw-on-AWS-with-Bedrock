@@ -1,6 +1,6 @@
 # 在 Amazon EKS 上部署 OpenClaw
 
-在 Amazon EKS 上部署 OpenClaw 企业管理控制台和 AI Agent 实例。支持 **AWS 全球区域**（us-west-2、us-east-1 等）和 **AWS 中国区域**（cn-northwest-1、cn-north-1）。
+在 Amazon EKS 上部署 OpenClaw Operator 和 AI Agent 实例。支持 **AWS 全球区域**（us-west-2、us-east-1 等）和 **AWS 中国区域**（cn-northwest-1、cn-north-1）。
 
 ---
 
@@ -14,26 +14,11 @@
 | kubectl     | >= 1.28  | `kubectl version --client` |
 | Terraform   | >= 1.3   | `terraform --version` |
 | Docker      | >= 20.0  | `docker --version` |
-| Node.js     | >= 22    | `node --version` |
 | Helm        | >= 3.12  | `helm version` |
 
 ### EKS Pod Identity Agent
 
-两种部署方式均使用 [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html)（非 IRSA）进行 AWS 权限管理。验证或安装：
-
-```bash
-# 检查是否已安装
-aws eks describe-addon --cluster-name 集群名称 \
-  --addon-name eks-pod-identity-agent --region 区域
-
-# 如未安装
-aws eks create-addon --cluster-name 集群名称 \
-  --addon-name eks-pod-identity-agent --region 区域
-```
-
-### AWS Load Balancer Controller（互联网访问）
-
-如需通过 ALB Ingress 将管理控制台暴露到互联网，需要安装 [AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/)。Terraform 中设置 `enable_alb_controller = true` 即可自动部署。
+使用 [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html)（非 IRSA）进行 AWS 权限管理。Terraform 会作为 Managed Addon 自动安装。
 
 ### 中国区域额外要求
 
@@ -41,7 +26,7 @@ AWS 中国区域（`cn-northwest-1`、`cn-north-1`）存在网络限制：
 
 | 要求 | 原因 | 处理方式 |
 |------|------|---------|
-| **镜像同步至中国区 ECR** | `ghcr.io` 和 Docker Hub 不可访问 | 运行 `china-image-mirror.sh` |
+| **镜像同步至中国区 ECR** | `ghcr.io`、Docker Hub 不可访问 | 运行 `china-image-mirror.sh` **在 `terraform apply` 之前** |
 | **第三方模型提供商** | Amazon Bedrock **不在中国区域运营** | 使用 LiteLLM 代理或直接 API Key |
 | **AWS 中国账户** | 独立分区（`aws-cn`） | 需要单独的 IAM 凭证 |
 | **AWS CLI Profile** | 中国账户需要独立的 Profile | `aws configure --profile china` |
@@ -73,20 +58,20 @@ AWS 中国区域（`cn-northwest-1`、`cn-north-1`）存在网络限制：
 
 | Helm Chart | Chart 来源 | 容器镜像（上游） | 镜像来源 | 中国可用 |
 |------------|-----------|---------|---------|---------|
-| **openclaw-operator** | `oci://ghcr.io/openclaw-rocks/charts` | `ghcr.io/openclaw-rocks/openclaw-operator:v0.26.2` | ghcr.io | ❌ 需同步 |
-| **aws-load-balancer-controller** | `https://aws.github.io/eks-charts` | `public.ecr.aws/eks/aws-load-balancer-controller:v3.2.1` | ECR Public | ✅ |
-| **kube-prometheus-stack** | `https://prometheus-community.github.io/helm-charts` | `quay.io/prometheus/prometheus:v2.54.1` | quay.io | ❌ 需同步 |
-| | | `quay.io/prometheus-operator/prometheus-operator:v0.77.1` | quay.io | ❌ 需同步 |
-| | | `quay.io/prometheus-operator/prometheus-config-reloader:v0.77.1` | quay.io | ❌ 需同步 |
-| | | `registry.k8s.io/ingress-nginx/kube-webhook-certgen:v20221220-...` | registry.k8s.io | ❌ 需同步 |
-| | | `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0` | registry.k8s.io | ❌ 需同步 |
-| | | `quay.io/prometheus/node-exporter:1.8.2` | quay.io | ❌ 需同步 |
-| **grafana** | `https://grafana.github.io/helm-charts` | `docker.io/grafana/grafana:11.2.1` | Docker Hub | ❌ 需同步 |
-| | | `quay.io/kiwigrid/k8s-sidecar:1.27.4` | quay.io | ❌ 需同步 |
-| **karpenter** | `oci://public.ecr.aws/karpenter` | `public.ecr.aws/karpenter/controller:1.7.4` | ECR Public | ✅ |
-| **kata-deploy** | `oci://ghcr.io/kata-containers/kata-deploy-charts` | `quay.io/kata-containers/kata-deploy:3.27.0` | quay.io | ❌ 需同步 |
-| **litellm** | `oci://ghcr.io/berriai/litellm-helm` | `docker.litellm.ai/berriai/litellm:main-latest` | docker.litellm.ai | ❌ 需同步 |
-| | | `public.ecr.aws/bitnami/postgresql:latest` | ECR Public | ✅ |
+| **openclaw-operator** | `oci://ghcr.io/openclaw-rocks/charts` | `ghcr.io/openclaw-rocks/openclaw-operator:v0.26.2` | ghcr.io | 需同步 |
+| **aws-load-balancer-controller** | `https://aws.github.io/eks-charts` | `public.ecr.aws/eks/aws-load-balancer-controller:v3.2.1` | ECR Public | 可直接拉取 |
+| **kube-prometheus-stack** | `https://prometheus-community.github.io/helm-charts` | `quay.io/prometheus/prometheus:v2.54.1` | quay.io | 需同步 |
+| | | `quay.io/prometheus-operator/prometheus-operator:v0.77.1` | quay.io | 需同步 |
+| | | `quay.io/prometheus-operator/prometheus-config-reloader:v0.77.1` | quay.io | 需同步 |
+| | | `registry.k8s.io/ingress-nginx/kube-webhook-certgen:v20221220-...` | registry.k8s.io | 需同步 |
+| | | `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0` | registry.k8s.io | 需同步 |
+| | | `quay.io/prometheus/node-exporter:1.8.2` | quay.io | 需同步 |
+| **grafana** | `https://grafana.github.io/helm-charts` | `docker.io/grafana/grafana:11.2.1` | Docker Hub | 需同步 |
+| | | `quay.io/kiwigrid/k8s-sidecar:1.27.4` | quay.io | 需同步 |
+| **karpenter** | `oci://public.ecr.aws/karpenter` | `public.ecr.aws/karpenter/controller:1.7.4` | ECR Public | 可直接拉取 |
+| **kata-deploy** | `oci://ghcr.io/kata-containers/kata-deploy-charts` | `quay.io/kata-containers/kata-deploy:3.27.0` | quay.io | 需同步 |
+| **litellm** | `oci://ghcr.io/berriai/litellm-helm` | `docker.litellm.ai/berriai/litellm:main-latest` | docker.litellm.ai | 需同步 |
+| | | `public.ecr.aws/bitnami/postgresql:latest` | ECR Public | 可直接拉取 |
 
 > **结论：** `china-image-mirror.sh` 会将所有上游镜像同步至中国区私有 ECR，Terraform 自动为中国区域使用 ECR 镜像。仅 `public.ecr.aws` 上的镜像（ALB Controller、Karpenter、PostgreSQL）无需额外同步。
 
@@ -117,13 +102,13 @@ bash eks/scripts/china-image-mirror.sh \
   --profile china
 ```
 
-该脚本同步全部 21 个容器镜像至中国区 ECR，并同步 Helm Chart OCI 制品：
+该脚本同步全部容器镜像至中国区 ECR，并同步 Helm Chart OCI 制品：
 
 **容器镜像（11 个）：**
 
 | 镜像 | 用途 | 来源 |
 |------|------|------|
-| `ghcr.io/openclaw/openclaw:latest` | OpenClaw 主容器 + init 容器 | ghcr.io |
+| `ghcr.io/openclaw/openclaw:2026.4.2` | OpenClaw 主容器 + init 容器 | ghcr.io |
 | `ghcr.io/astral-sh/uv:0.6-bookworm-slim` | Python 依赖安装 Init 容器 | ghcr.io |
 | `busybox:1.37` | 配置文件复制 Init 容器（overwrite 模式） | Docker Hub |
 | `nginx:1.27-alpine` | Gateway 代理 Sidecar | Docker Hub |
@@ -145,21 +130,19 @@ bash eks/scripts/china-image-mirror.sh \
 
 ---
 
-## 部署方式一：Terraform（推荐）
+## 使用 Terraform 部署
 
-创建完整基础设施：VPC、EKS 集群、EFS、ALB Controller、OpenClaw Operator、管理控制台（含 Ingress）及所有 AWS 支撑资源。
+创建完整基础设施：VPC、EKS 集群、EFS 存储、OpenClaw Operator，以及可选的 ALB Controller、Kata Containers、监控栈和 LiteLLM。
 
-### 第一步：同步镜像至 ECR（中国区域必须在 terraform apply 之前执行）
+### 第一步：同步镜像至 ECR（仅中国区域）
 
-> **⚠ 中国区域必须先执行此步骤。** `terraform apply` 会安装 Helm Chart 和拉取容器镜像。在中国区域，这些来源（ghcr.io、quay.io、Docker Hub、registry.k8s.io）均被阻断。`china-image-mirror.sh` 会将所有 Helm Chart 和容器镜像同步至中国区 ECR，Terraform 自动使用 ECR 作为来源。**跳过此步骤将导致 `terraform apply` 失败。**
+> **中国区域必须在 `terraform apply` 之前执行此步骤。** 所有上游镜像仓库（ghcr.io、quay.io、Docker Hub、registry.k8s.io）均被阻断。脚本会将所有镜像和 Helm Chart 同步至 ECR。**跳过此步骤将导致 `terraform apply` 失败。**
 
 ```bash
-# 中国区域（同步所有容器镜像和 Helm Chart 至 ECR）
 bash eks/scripts/china-image-mirror.sh --region cn-northwest-1 --name openclaw-cn --profile china
-
-# 全球区域通常不需要（镜像从上游直接拉取），但如需 air-gapped 部署：
-# bash eks/scripts/china-image-mirror.sh --region us-west-2 --name openclaw-prod
 ```
+
+全球区域直接从上游拉取，无需同步。
 
 ### 第二步：Terraform apply
 
@@ -173,10 +156,7 @@ terraform apply \
   -var="name=openclaw-prod" \
   -var="region=us-west-2" \
   -var="architecture=arm64" \
-  -var="enable_efs=true" \
-  -var="enable_alb_controller=true" \
-  -var="enable_admin_console=true" \
-  -var="admin_password=您的安全密码"
+  -var="enable_efs=true"
 ```
 
 **中国区域：**
@@ -189,43 +169,21 @@ terraform init
 AWS_PROFILE=china terraform apply \
   -var="name=openclaw-cn" \
   -var="region=cn-northwest-1" \
-  -var="architecture=x86" \
-  -var="enable_efs=true" \
-  -var="enable_alb_controller=true" \
-  -var="enable_admin_console=true" \
-  -var="admin_password=您的安全密码"
+  -var="architecture=arm64" \
+  -var="enable_efs=true"
 ```
 
-Terraform 自动完成：
-- DynamoDB 示例数据初始化（幂等操作，不覆盖已有记录）
-- SOUL 模板上传至 S3
-- 创建 ALB Ingress 暴露到互联网
-- 配置 RBAC（ClusterRole + ClusterRoleBinding）实现 K8s API 访问
-- 配置 Pod Identity 实现 AWS API 访问
-
-### 第三步：访问管理控制台
-
-Apply 完成后，获取 ALB 地址：
+### 第三步：配置 kubectl
 
 ```bash
-kubectl -n openclaw get ingress admin-console \
-  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-```
+# 全球区域
+aws eks --region us-west-2 update-kubeconfig --name openclaw-prod
 
-在浏览器中打开该地址。使用 `emp-jiade` 和设置的密码登录。
-
-如需自定义域名和 HTTPS：
-
-```bash
-terraform apply \
-  -var="admin_console_ingress_host=admin.openclaw.example.com" \
-  -var="admin_console_certificate_arn=arn:aws:acm:区域:账户:certificate/证书ID" \
-  ...
+# 中国区域
+AWS_PROFILE=china aws eks --region cn-northwest-1 update-kubeconfig --name openclaw-cn
 ```
 
 ### Terraform 变量参考
-
-**核心变量：**
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -238,317 +196,201 @@ terraform apply \
 | `enable_monitoring` | `false` | 启用 Prometheus + Grafana 监控栈 |
 | `enable_litellm` | `false` | 启用 LiteLLM 代理（中国区域必需） |
 
-**管理控制台变量：**
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `enable_admin_console` | `false` | 部署管理控制台 |
-| `admin_password` | `""` | 登录密码（启用时必填） |
-| `admin_console_image_tag` | `latest` | Docker 镜像标签 |
-| `admin_console_ingress_class` | `alb` | Ingress 类名 |
-| `admin_console_ingress_host` | `""` | 自定义域名（空 = ALB DNS） |
-| `admin_console_certificate_arn` | `""` | ACM 证书 ARN（HTTPS） |
-
-### 后续更新
-
-更新管理控制台代码后，重新构建推送：
-
-```bash
-ECR_URI=$(cd eks/terraform && terraform output -raw admin_console_ecr)
-cd enterprise/admin-console
-docker build -t $ECR_URI:latest .
-docker push $ECR_URI:latest
-kubectl -n openclaw rollout restart deployment/admin-console
-```
-
----
-
-## 部署方式二：独立脚本（已有集群）
-
-适用于**已有** EKS 集群的场景，通过 Helm Chart 部署。仅创建管理控制台相关资源。
-
-**全球区域：**
-
-```bash
-cd enterprise/admin-console
-
-bash deploy-eks.sh \
-  --cluster dev-cluster \
-  --region us-west-2 \
-  --password 管理员密码
-```
-
-**中国区域：**
-
-```bash
-cd enterprise/admin-console
-
-AWS_PROFILE=china bash deploy-eks.sh \
-  --cluster openclaw-cn \
-  --region cn-northwest-1 \
-  --password 管理员密码
-```
-
-脚本内部使用 `helm upgrade --install`，自动部署：
-- ServiceAccount（含可选 IRSA 注解）
-- ClusterRole + ClusterRoleBinding（K8s API 访问权限：CRD 管理、Pod/日志读取）
-- Deployment（FastAPI + React，端口 8099）
-- Service（ClusterIP）
-
-### 脚本参数
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--cluster` | （必填） | EKS 集群名称 |
-| `--region` | `us-west-2` | AWS 区域 |
-| `--namespace` | `openclaw` | Kubernetes 命名空间 |
-| `--stack` | `openclaw-eks` | 资源名称前缀 |
-| `--password` | `admin123` | 管理控制台登录密码 |
-| `--skip-build` | false | 跳过 Docker 镜像构建 |
-| `--skip-seed` | false | 跳过 DynamoDB 数据初始化 |
-
-### 创建的 AWS 资源
-
-| 资源 | 命名规则 | 用途 |
-|------|---------|------|
-| ECR 仓库 | `{stack}/admin-console` | Docker 镜像存储 |
-| DynamoDB 表 | `{stack}-enterprise` | 企业数据（单表设计） |
-| S3 存储桶 | `{stack}-workspaces-{account}` | SOUL 模板、工作空间、知识库 |
-| IAM 角色 | `{stack}-admin-console` | Pod Identity 权限 |
-| SSM 参数 | `/openclaw/{stack}/*` | 密钥（密码、JWT） |
-
-### 启用互联网访问（独立部署）
-
-独立脚本默认部署为 ClusterIP。如需通过 ALB 暴露到互联网：
-
-```bash
-helm upgrade admin-console enterprise/admin-console/chart \
-  --namespace openclaw \
-  --reuse-values \
-  --set ingress.enabled=true \
-  --set ingress.className=alb \
-  --set ingress.host=admin.openclaw.example.com \
-  --set 'ingress.annotations.alb\.ingress\.kubernetes\.io/certificate-arn=ACM_ARN'
-```
-
-或使用端口转发本地访问：
-
-```bash
-kubectl -n openclaw port-forward svc/admin-console 8099:8099
-open http://localhost:8099
-```
-
 ---
 
 ## 部署 OpenClaw Agent 实例
 
-管理控制台运行后，可通过 UI 或 API 部署 AI Agent 实例。
+Terraform 完成后，通过 `kubectl` 部署 AI Agent 实例。
 
-### 通过 UI
+### 基本实例（全球区域）
 
-1. 打开管理控制台（ALB 地址或 `http://localhost:8099`）
-2. 进入 **Agent Factory** > **EKS** 标签页
-3. 点击 **Deploy Agent**
-4. 配置选项：
-   - **Agent**：从列表中选择
-   - **Model**：选择 Bedrock 模型（全球）或配置第三方模型（中国）
-   - **Container Image** / **Global Registry**：自定义镜像或中国区 ECR 地址
-   - **Compute Resources**：CPU / 内存的请求值和上限
-   - **Storage**：StorageClass 和大小
-   - **Chromium**：启用无头浏览器 Sidecar
-   - **高级选项**：Runtime Class（Kata）、Service 类型、备份计划、节点选择器、容忍度、自定义配置（JSON）
-5. 点击 **Deploy**
-
-如需编辑运行中实例的配置，点击 EKS 实例表格中的 **齿轮图标**（⚙）。这将打开 JSON 编辑器，显示当前的 `spec.config.raw`。编辑后点击 **Save & Restart** 即可深度合并更改并重启 Pod。
-
-### 通过 API
+```yaml
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: my-agent
+  namespace: openclaw
+spec:
+  image:
+    tag: "2026.4.2"
+  config:
+    raw:
+      models:
+        providers:
+          amazon-bedrock:
+            baseUrl: "https://bedrock-runtime.us-west-2.amazonaws.com"
+            models:
+              - id: us.amazon.nova-2-lite-v1:0
+                name: Nova 2 Lite
+                contextWindow: 300000
+                maxTokens: 5120
+      agents:
+        defaults:
+          model:
+            primary: amazon-bedrock/us.amazon.nova-2-lite-v1:0
+  gateway:
+    enabled: true
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  storage:
+    persistence:
+      size: 5Gi
+```
 
 ```bash
-# 全球区域
-curl -X POST https://ALB地址/api/v1/admin/eks/agent-helpdesk/deploy \
-  -H "Authorization: Bearer TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "bedrock/us.amazon.nova-2-lite-v1:0"}'
-
-# 中国区域（设置全局镜像仓库）
-curl -X POST https://ALB地址/api/v1/admin/eks/agent-helpdesk/deploy \
-  -H "Authorization: Bearer TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "anthropic/claude-sonnet-4-5-20250929",
-    "globalRegistry": "账户ID.dkr.ecr.cn-northwest-1.amazonaws.com.cn"
-  }'
+kubectl apply -f my-agent.yaml
+kubectl get pods -n openclaw -w
 ```
 
-### 部署 API 参数
+### 中国区域实例（ECR 镜像仓库覆盖）
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `model` | Nova 2 Lite | 模型 ID（中国区使用第三方模型） |
-| `image` | ghcr.io/openclaw/openclaw | 主容器镜像 URI |
-| `globalRegistry` | （无） | **中国区域必填**：重写所有镜像的仓库地址 |
-| `storageClass` | 集群默认（efs-sc） | K8s StorageClass |
-| `storageSize` | `10Gi` | PVC 大小 |
-| `cpuRequest` / `cpuLimit` | `500m` / `2` | CPU 资源 |
-| `memoryRequest` / `memoryLimit` | `2Gi` / `4Gi` | 内存资源 |
-| `runtimeClass` | （无） | `kata-qemu`：Firecracker 虚拟机隔离 |
-| `chromium` | `false` | 启用无头浏览器 Sidecar |
-| `backupSchedule` | （无） | S3 备份 Cron 表达式（如 `0 2 * * *`） |
-| `serviceType` | `ClusterIP` | K8s Service 类型 |
-| `nodeSelector` | （无） | 节点标签 JSON |
-| `tolerations` | （无） | 容忍度 JSON |
-| `configOverride` | （无） | 深度合并到 `spec.config.raw` 的 JSON 对象（见下文） |
+添加 `spec.registry` 将所有镜像地址重写到中国区 ECR：
 
-### 自定义配置注入
-
-`configOverride` 参数（部署和重载均可用）允许您覆盖 OpenClaw `openclaw.json` 配置的任何部分，无需构建自定义容器镜像。该 JSON 将**深度合并**到默认的 Bedrock 配置中 —— 未显式覆盖的现有配置会被保留。
-
-#### 使用场景
-
-- **自定义模型提供商** —— 使用 OpenAI 兼容 API、自托管模型或 LiteLLM 代理
-- **工具设置** —— 覆盖工具权限、执行策略或沙盒设置
-- **Agent 默认值** —— 自定义压缩设置、工作空间路径或启动行为
-- **Gateway 配置** —— 更改认证模式、允许的来源或控制台 UI 设置
-
-#### API 示例
+```yaml
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: my-agent
+  namespace: openclaw
+spec:
+  image:
+    tag: "2026.4.2"
+  registry: "ACCOUNT.dkr.ecr.cn-northwest-1.amazonaws.com.cn"
+  config:
+    raw:
+      models:
+        providers:
+          amazon-bedrock:
+            baseUrl: "https://bedrock-runtime.us-west-2.amazonaws.com"
+            models:
+              - id: us.amazon.nova-2-lite-v1:0
+                name: Nova 2 Lite
+                contextWindow: 300000
+                maxTokens: 5120
+      agents:
+        defaults:
+          model:
+            primary: amazon-bedrock/us.amazon.nova-2-lite-v1:0
+  gateway:
+    enabled: true
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  storage:
+    persistence:
+      size: 5Gi
+```
 
 ```bash
-# 部署时使用 OpenAI 兼容模型提供商
-curl -X POST https://ALB地址/api/v1/admin/eks/agent-helpdesk/deploy \
-  -H "Authorization: Bearer TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "bedrock/us.amazon.nova-2-lite-v1:0",
-    "configOverride": {
-      "models": {
-        "providers": {
-          "custom-openai": {
-            "baseUrl": "https://your-endpoint.com/v1",
-            "apiKey": "sk-...",
-            "models": [{ "id": "gpt-4o", "contextWindow": 128000, "maxTokens": 4096 }]
-          }
-        }
-      },
-      "agents": {
-        "defaults": {
-          "model": { "primary": "custom-openai/gpt-4o" }
-        }
-      }
-    }
-  }'
-
-# 更新运行中实例的配置（重载并覆盖）
-curl -X POST https://ALB地址/api/v1/admin/eks/agent-helpdesk/reload \
-  -H "Authorization: Bearer TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "configOverride": {
-      "agents": {
-        "defaults": {
-          "model": { "primary": "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0" }
-        }
-      }
-    }
-  }'
-
-# 读取当前配置
-curl https://ALB地址/api/v1/admin/eks/agent-helpdesk/config \
-  -H "Authorization: Bearer TOKEN"
+kubectl apply -f my-agent.yaml
+kubectl get pods -n openclaw -w
 ```
 
-#### LiteLLM 代理示例
+### LiteLLM 实例（中国区域）
 
-如果部署了可选的 LiteLLM 模块（Terraform 中 `enable_litellm = true`），可将 Agent 指向集群内 LiteLLM 端点：
+如果部署了 LiteLLM（`enable_litellm = true`），将 Agent 指向集群内端点：
 
-```json
-{
-  "configOverride": {
-    "models": {
-      "providers": {
-        "litellm": {
-          "baseUrl": "http://litellm.litellm.svc:4000/v1",
-          "apiKey": "not-needed",
-          "models": [
-            { "id": "bedrock/claude-sonnet", "contextWindow": 200000, "maxTokens": 8192 },
-            { "id": "bedrock/nova-pro", "contextWindow": 300000, "maxTokens": 5120 }
-          ]
-        }
-      }
-    },
-    "agents": {
-      "defaults": { "model": { "primary": "litellm/bedrock/claude-sonnet" } }
-    }
-  }
-}
+```yaml
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: my-agent
+  namespace: openclaw
+spec:
+  image:
+    tag: "2026.4.2"
+  registry: "ACCOUNT.dkr.ecr.cn-northwest-1.amazonaws.com.cn"
+  config:
+    raw:
+      models:
+        providers:
+          litellm:
+            baseUrl: "http://litellm.litellm.svc:4000/v1"
+            apiKey: "not-needed"
+            models:
+              - id: bedrock/claude-sonnet
+                name: Claude Sonnet
+                contextWindow: 200000
+                maxTokens: 8192
+      agents:
+        defaults:
+          model:
+            primary: litellm/bedrock/claude-sonnet
+  gateway:
+    enabled: true
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  storage:
+    persistence:
+      size: 5Gi
 ```
 
-#### 深度合并规则
-
-- **字典值**递归合并（基础配置和覆盖配置的键均会保留）
-- **列表值**由覆盖配置完全替换（不追加）
-- **标量值**由覆盖配置替换
-- 除非显式覆盖，原始 Bedrock 提供商配置将被保留
-
----
-
-## 集成测试
-
-运行集成测试脚本验证部署：
+### 管理实例
 
 ```bash
-# 全球区域
-bash eks/scripts/integration-test.sh \
-  --cluster openclaw-prod \
-  --region us-west-2 \
-  --password 密码
+# 列出实例
+kubectl get openclawinstances -n openclaw
 
-# 中国区域
-bash eks/scripts/integration-test.sh \
-  --cluster openclaw-cn \
-  --region cn-northwest-1 \
-  --password 密码 \
-  --registry 账户ID.dkr.ecr.cn-northwest-1.amazonaws.com.cn
+# 查看 Pod 状态
+kubectl get pods -n openclaw
+
+# 查看日志
+kubectl logs -n openclaw my-agent-0 -c openclaw --tail=50
+
+# 删除实例
+kubectl delete openclawinstance my-agent -n openclaw
 ```
 
-测试内容：登录、Operator 状态、实例部署、Pod 启动、PVC 存储类、镜像仓库覆盖、重载、重复部署拒绝、停止、UI 部署弹窗。
+### CRD 示例
+
+参见 `eks/manifests/examples/` 目录下的预置示例：
+- `openclaw-bedrock-instance.yaml` — 标准 Bedrock 实例
+- `openclaw-kata-instance.yaml` — 使用 Firecracker 虚拟机隔离的实例
+- `openclaw-slack-instance.yaml` — 集成 Slack Bot 的实例
 
 ---
 
 ## 架构
 
 ```
-                        互联网
-                          |
-                    ┌─────┴─────┐
-                    │    ALB    │ (Ingress, HTTPS)
-                    └─────┬─────┘
-                          |
-┌─────────────────────────┼────────────────────────────┐
-│  EKS 集群               |                            │
-│                         |                            │
-│  ┌──────────────────────┼──────────────────────────┐ │
-│  │  openclaw 命名空间    |                          │ │
-│  │                      |                          │ │
-│  │  ┌───────────────────┴──┐  ┌──────────────────┐ │ │
-│  │  │  管理控制台           │  │ OpenClawInstance  │ │ │
-│  │  │  (FastAPI + React)   │  │ (Operator 管理)   │ │ │
-│  │  │  Helm Chart 部署     │  │ StatefulSet+Svc   │ │ │
-│  │  │  Pod Identity → AWS  │  │ +PVC (EFS)        │ │ │
-│  │  └──────────────────────┘  └──────────────────┘ │ │
-│  └──────────────────────────────────────────────────┘ │
-│                                                        │
-│  ┌────────────────────────────────────────────────────┐│
-│  │  openclaw-operator-system 命名空间                  ││
-│  │  OpenClaw Operator（监听 CRD → 创建 K8s 资源）      ││
-│  └────────────────────────────────────────────────────┘│
-└────────────────────────────┬───────────────────────────┘
-                             │
-                  ┌──────────┴──────────┐
-                  │    AWS 服务          │
-                  │  Bedrock   DynamoDB │
-                  │  S3   SSM   ECR    │
-                  │  EFS  ACM   WAF    │
-                  └─────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│  EKS 集群                                               │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐ │
+│  │  openclaw 命名空间                                  │ │
+│  │                                                     │ │
+│  │  ┌──────────────────┐  ┌──────────────────┐        │ │
+│  │  │ OpenClawInstance  │  │ OpenClawInstance  │  ...   │ │
+│  │  │ StatefulSet + Svc │  │ StatefulSet + Svc │        │ │
+│  │  │ + PVC (EFS)       │  │ + PVC (EFS)       │        │ │
+│  │  └──────────────────┘  └──────────────────┘        │ │
+│  └────────────────────────────────────────────────────┘ │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐ │
+│  │  openclaw-operator-system 命名空间                   │ │
+│  │  OpenClaw Operator（监听 CRD → 创建 K8s 资源）       │ │
+│  └────────────────────────────────────────────────────┘ │
+└───────────────────────────┬──────────────────────────────┘
+                            │
+                 ┌──────────┴──────────┐
+                 │    AWS 服务          │
+                 │  Bedrock   EFS      │
+                 │  ECR       IAM      │
+                 └─────────────────────┘
 ```
 
 ### 运行时对比
@@ -557,8 +399,6 @@ bash eks/scripts/integration-test.sh \
 |--------|---------|------|---------|
 | **EKS Pod** | cgroups / 命名空间 | EFS | ghcr.io（全球）/ ECR 镜像（中国） |
 | **EKS + Kata** | Firecracker 微虚拟机 | EFS | 同上，加 `runtimeClass: kata-qemu` |
-| **ECS Fargate** | Fargate 微虚拟机 | EFS 或 S3 | 私有 ECR |
-| **AgentCore** | Firecracker 微虚拟机 | Session Storage | 内置 |
 
 ---
 
@@ -568,31 +408,10 @@ bash eks/scripts/integration-test.sh \
 
 | 运行时 | 内核 | Prompt 注入风险 |
 |--------|------|----------------|
-| AgentCore / ECS | 独立微虚拟机 | 容器逃逸不可能 |
 | **EKS Pod** | **共享宿主机内核** | 内核漏洞理论上可利用 |
 | EKS + Kata | 独立 Firecracker 虚拟机 | 容器逃逸不可能 |
 
 生产环境如有不可信代码执行需求，建议启用 Kata Containers（`enable_kata = true`）。
-
-### Pod Identity IAM 权限范围
-
-管理控制台使用 EKS Pod Identity，遵循最小权限原则：
-
-- **DynamoDB**：仅对企业数据表读写
-- **S3**：仅对工作空间存储桶读写
-- **SSM**：仅 `/openclaw/{stack}/*` 路径下的参数
-- **EKS**：`ListClusters`、`DescribeCluster`（只读）
-- **ECR**：镜像拉取（只读）
-- **无 Bedrock 权限**——Agent 通过自身 IRSA 角色调用模型
-
-### Ingress 安全
-
-Helm Chart 的 ALB Ingress 支持：
-- 通过 ACM 证书启用 HTTPS（`ingress.annotations.alb.ingress.kubernetes.io/certificate-arn`）
-- HTTP 自动跳转 HTTPS（默认启用）
-- WAFv2 集成（`ingress.annotations.alb.ingress.kubernetes.io/wafv2-acl-arn`）
-
-生产环境建议始终使用自定义域名 + HTTPS，并考虑启用 WAFv2。
 
 ---
 
@@ -600,16 +419,11 @@ Helm Chart 的 ALB Ingress 支持：
 
 ### Pod `ImagePullBackOff`（中国区域）
 
-镜像无法从 ghcr.io / Docker Hub 拉取。两种修复方式：
+镜像无法从被阻断的仓库拉取。在 OpenClawInstance 中设置 `spec.registry`：
 
-```bash
-# 方式 1：部署实例时指定 globalRegistry
-curl -X POST .../deploy -d '{"globalRegistry": "中国区ECR地址"}'
-
-# 方式 2：在 Helm 中全局设置 OPENCLAW_REGISTRY（所有部署生效）
-helm upgrade admin-console enterprise/admin-console/chart \
-  --namespace openclaw --reuse-values \
-  --set openclawRegistry=中国区ECR地址
+```yaml
+spec:
+  registry: "ACCOUNT.dkr.ecr.cn-northwest-1.amazonaws.com.cn"
 ```
 
 ### Pod `Pending`（PVC 未绑定）
@@ -621,28 +435,11 @@ kubectl annotate storageclass efs-sc \
   storageclass.kubernetes.io/is-default-class=true
 ```
 
-### Ingress 未创建 ALB
-
-检查 AWS Load Balancer Controller 是否运行：
-
-```bash
-kubectl get deployment -n kube-system aws-load-balancer-controller
-```
-
-如未安装，Terraform 中设置 `enable_alb_controller = true`，或手动安装：
-
-```bash
-helm repo add eks https://aws.github.io/eks-charts
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system --set clusterName=集群名称
-```
-
-### Operator 未检测到
-
-管理控制台会查找名为 `openclaw-operator` 或 `openclaw-operator-controller-manager` 的 Deployment：
+### Operator 未运行
 
 ```bash
 kubectl get deployment -n openclaw-operator-system
+kubectl logs -n openclaw-operator-system deployment/openclaw-operator
 ```
 
 ### Pod Identity 403 错误
@@ -654,15 +451,6 @@ kubectl get pods -n kube-system -l app.kubernetes.io/name=eks-pod-identity-agent
 # 检查关联
 aws eks list-pod-identity-associations \
   --cluster-name 集群名称 --namespace openclaw --region 区域
-```
-
-### 管理控制台 K8s API 403
-
-Terraform 和独立部署脚本均通过 Helm Chart 自动创建 RBAC。如手动安装后出现 403，重新执行 Helm 安装即可：
-
-```bash
-helm upgrade admin-console enterprise/admin-console/chart \
-  --namespace openclaw --reuse-values --set rbac.create=true
 ```
 
 ---
@@ -706,9 +494,8 @@ helm upgrade admin-console enterprise/admin-console/chart \
 git clone https://github.com/aws-samples/sample-OpenClaw-on-AWS-with-Bedrock.git
 cd sample-OpenClaw-on-AWS-with-Bedrock
 
-# 打包整个项目（含 Terraform 模块、Helm chart、脚本）
-tar czf openclaw-eks-project.tar.gz \
-  eks/ enterprise/ docs/ CLAUDE.md README.md
+# 打包项目（含 Terraform 模块、脚本）
+tar czf openclaw-eks-project.tar.gz eks/ docs/ CLAUDE.md README.md
 ```
 
 ### 步骤 2：在本地 PC 拉取并保存容器镜像
@@ -720,7 +507,7 @@ PLATFORM="linux/arm64"  # Graviton 节点
 # PLATFORM="linux/amd64"  # Intel/AMD 节点
 
 # 核心镜像（必需）
-docker pull --platform $PLATFORM ghcr.io/openclaw/openclaw:latest
+docker pull --platform $PLATFORM ghcr.io/openclaw/openclaw:2026.4.2
 docker pull --platform $PLATFORM ghcr.io/astral-sh/uv:0.6-bookworm-slim
 docker pull --platform $PLATFORM busybox:1.37
 docker pull --platform $PLATFORM nginx:1.27-alpine
@@ -741,7 +528,7 @@ helm pull oci://ghcr.io/openclaw-rocks/charts/openclaw-operator --version 0.26.2
 
 # 保存为 tar.gz（批量打包减少传输次数）
 docker save \
-  ghcr.io/openclaw/openclaw:latest \
+  ghcr.io/openclaw/openclaw:2026.4.2 \
   ghcr.io/astral-sh/uv:0.6-bookworm-slim \
   busybox:1.37 \
   nginx:1.27-alpine \
@@ -757,19 +544,7 @@ docker save \
   | gzip > sidecar-images.tar.gz
 ```
 
-### 步骤 3：构建管理控制台镜像
-
-```bash
-cd enterprise/admin-console
-
-# 跨架构构建（如本地 PC 是 x86 但目标是 arm64）
-docker buildx build --platform $PLATFORM -t openclaw-admin-console:latest --load .
-
-# 保存
-docker save openclaw-admin-console:latest | gzip > admin-console.tar.gz
-```
-
-### 步骤 4：通过 S3 中转到中国区域
+### 步骤 3：通过 S3 中转到中国区域
 
 S3 多部分上传比直接 `docker push` 跨境更可靠、可断点续传。
 
@@ -784,15 +559,14 @@ S3_BUCKET="你的中国S3桶名"  # 使用已有桶或先创建一个
 # 上传镜像文件、Helm Chart 和项目包
 aws s3 cp core-images.tar.gz s3://$S3_BUCKET/openclaw-deploy/ --profile china --region cn-northwest-1
 aws s3 cp sidecar-images.tar.gz s3://$S3_BUCKET/openclaw-deploy/ --profile china --region cn-northwest-1
-aws s3 cp admin-console.tar.gz s3://$S3_BUCKET/openclaw-deploy/ --profile china --region cn-northwest-1
 aws s3 cp openclaw-eks-project.tar.gz s3://$S3_BUCKET/openclaw-deploy/ --profile china --region cn-northwest-1
 # Helm Chart OCI 制品
 aws s3 cp openclaw-operator-0.26.2.tgz s3://$S3_BUCKET/openclaw-deploy/ --profile china --region cn-northwest-1
 ```
 
-> **提示：** 跨境 S3 上传速度约 1-2 MiB/s。核心镜像（~1GB）约需 15-20 分钟。上传完成后，中国区域内 S3→EC2 下载速度可达 200+ MiB/s。
+> **提示：** 跨境 S3 上传速度约 1-2 MiB/s。核心镜像（~1GB）约需 15-20 分钟。上传完成后，中国区域内 S3 到 EC2 下载速度可达 200+ MiB/s。
 
-### 步骤 5：在中国 EC2 实例上加载镜像
+### 步骤 4：在中国 EC2 实例上加载并推送镜像
 
 ```bash
 S3_BUCKET="你的中国S3桶名"
@@ -801,51 +575,38 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com.cn"
 
 # 下载文件（同区域，速度很快）
-aws s3 cp s3://$S3_BUCKET/openclaw-deploy/core-images.tar.gz /tmp/
-aws s3 cp s3://$S3_BUCKET/openclaw-deploy/sidecar-images.tar.gz /tmp/
-aws s3 cp s3://$S3_BUCKET/openclaw-deploy/admin-console.tar.gz /tmp/
-aws s3 cp s3://$S3_BUCKET/openclaw-deploy/openclaw-eks-project.tar.gz ~/
-aws s3 cp s3://$S3_BUCKET/openclaw-deploy/openclaw-operator-0.26.2.tgz /tmp/
-
-# 解压项目
-cd ~ && tar xzf openclaw-eks-project.tar.gz
+aws s3 cp s3://$S3_BUCKET/openclaw-deploy/ /tmp/openclaw-deploy/ --recursive
+cd ~ && tar xzf /tmp/openclaw-deploy/openclaw-eks-project.tar.gz
 
 # 加载 Docker 镜像
-gunzip -c /tmp/core-images.tar.gz | docker load
-gunzip -c /tmp/sidecar-images.tar.gz | docker load
-gunzip -c /tmp/admin-console.tar.gz | docker load
-```
+gunzip -c /tmp/openclaw-deploy/core-images.tar.gz | docker load
+gunzip -c /tmp/openclaw-deploy/sidecar-images.tar.gz | docker load
 
-### 步骤 6：推送镜像到中国 ECR
-
-```bash
 # 登录 ECR
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ECR
-
-NAME="openclaw-cn"  # 与 Terraform var.name 保持一致
+helm registry login "$ECR" --username AWS \
+  --password "$(aws ecr get-login-password --region $REGION)"
 
 # 创建 ECR 仓库（幂等操作）
 for repo in openclaw/openclaw astral-sh/uv library/busybox library/nginx \
             otel/opentelemetry-collector openclaw-rocks/openclaw-operator \
             chromedp/headless-shell rclone/rclone tsl0922/ttyd \
-            tailscale/tailscale charts/openclaw-operator ${NAME}/admin-console; do
+            tailscale/tailscale charts/openclaw-operator; do
   aws ecr create-repository --repository-name $repo --region $REGION 2>/dev/null || true
 done
 
 # 标记并推送核心镜像
-docker tag ghcr.io/openclaw/openclaw:latest $ECR/openclaw/openclaw:latest
+docker tag ghcr.io/openclaw/openclaw:2026.4.2 $ECR/openclaw/openclaw:2026.4.2
 docker tag ghcr.io/astral-sh/uv:0.6-bookworm-slim $ECR/astral-sh/uv:0.6-bookworm-slim
 docker tag busybox:1.37 $ECR/library/busybox:1.37
 docker tag nginx:1.27-alpine $ECR/library/nginx:1.27-alpine
 docker tag otel/opentelemetry-collector:0.120.0 $ECR/otel/opentelemetry-collector:0.120.0
 docker tag ghcr.io/openclaw-rocks/openclaw-operator:v0.26.2 $ECR/openclaw-rocks/openclaw-operator:v0.26.2
-docker tag openclaw-admin-console:latest $ECR/${NAME}/admin-console:latest
 
-for img in openclaw/openclaw:latest astral-sh/uv:0.6-bookworm-slim \
+for img in openclaw/openclaw:2026.4.2 astral-sh/uv:0.6-bookworm-slim \
            library/busybox:1.37 library/nginx:1.27-alpine \
            otel/opentelemetry-collector:0.120.0 \
-           openclaw-rocks/openclaw-operator:v0.26.2 ${NAME}/admin-console:latest; do
-  echo "Pushing $img..."
+           openclaw-rocks/openclaw-operator:v0.26.2; do
   docker push $ECR/$img
 done
 
@@ -860,17 +621,15 @@ for img in chromedp/headless-shell:stable rclone/rclone:1.68 \
   docker push $ECR/$img
 done
 
-# 推送 Helm Chart OCI 制品（Terraform 部署需要）
-helm registry login "$ECR" --username AWS \
-  --password "$(aws ecr get-login-password --region $REGION)"
-helm push /tmp/openclaw-operator-0.26.2.tgz oci://$ECR/charts
+# 推送 Helm Chart OCI 制品
+helm push /tmp/openclaw-deploy/openclaw-operator-0.26.2.tgz oci://$ECR/charts
 
 echo "所有镜像和 Helm Chart 已推送到 $ECR"
 ```
 
-### 步骤 7：Terraform 部署
+### 步骤 5：Terraform 部署
 
-> **⚠ 前置条件：** 步骤 6 必须已完成（所有容器镜像和 Helm Chart 已推送至中国区 ECR）。否则 `terraform apply` 将因无法拉取镜像/Chart 而失败。
+> **前置条件：** 步骤 4 必须已完成（所有容器镜像和 Helm Chart 已推送至中国区 ECR）。否则 `terraform apply` 将因无法拉取镜像/Chart 而失败。
 
 ```bash
 cd ~/eks/terraform
@@ -884,15 +643,12 @@ terraform apply -auto-approve \
   -var="region=cn-northwest-1" \
   -var="name=openclaw-cn" \
   -var="architecture=arm64" \
-  -var="enable_efs=true" \
-  -var="enable_admin_console=true" \
-  -var="admin_password=你的密码" \
-  -var="seed_demo_data=true"
+  -var="enable_efs=true"
 ```
 
 > **注意：** 首次 apply 可能因 EKS access entry 传播延迟报 K8s 权限错误，重新执行 `terraform apply` 即可。如 Helm release 卡住，执行 `helm uninstall <name> -n <ns>` 清理后重试。
 
-### 步骤 8：验证部署
+### 步骤 6：部署实例
 
 ```bash
 # 配置 kubectl
@@ -902,14 +658,13 @@ aws eks --region cn-northwest-1 update-kubeconfig --name openclaw-cn
 kubectl get nodes
 kubectl get pods -A
 
-# 端口转发访问管理控制台
-kubectl -n openclaw port-forward svc/admin-console 8099:8099
-# 浏览器访问 http://localhost:8099
+# 部署 OpenClaw 实例（编辑 manifest 中的 spec.registry 指向中国区 ECR）
+kubectl apply -f eks/manifests/examples/openclaw-bedrock-instance.yaml
 ```
 
 ### 镜像更新流程
 
-后续更新镜像时，重复步骤 2-6（仅拉取变更的镜像）。也可使用 `china-image-mirror.sh` 的 `--platform` 参数：
+后续更新镜像时，重复步骤 2-4（仅拉取变更的镜像）。也可使用 `china-image-mirror.sh` 的 `--platform` 参数：
 
 ```bash
 # 在可访问境外 registry 的机器上
@@ -927,11 +682,10 @@ bash eks/scripts/china-image-mirror.sh \
 
 | 文件 | 大小（约） | 说明 |
 |------|-----------|------|
-| `openclaw-eks-project.tar.gz` | ~5 MB | Terraform、Helm chart、脚本 |
+| `openclaw-eks-project.tar.gz` | ~5 MB | Terraform 模块、脚本 |
 | `core-images.tar.gz` | ~1 GB | OpenClaw + operator + busybox + 基础镜像 |
 | `sidecar-images.tar.gz` | ~100 MB | 可选 sidecar（不含 ollama） |
-| `admin-console.tar.gz` | ~140 MB | 管理控制台 Docker 镜像 |
 | `openclaw-operator-0.26.2.tgz` | ~50 KB | Operator Helm Chart OCI 制品 |
-| **合计** | **~1.3 GB** | |
+| **合计** | **~1.1 GB** | |
 
 > `ollama/ollama` 镜像（~3.4 GB）体积过大，建议仅在需要本地 LLM 推理时单独传输。
