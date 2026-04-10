@@ -41,7 +41,7 @@ AWS 中国区域（`cn-northwest-1`、`cn-north-1`）存在网络限制：
 
 | 要求 | 原因 | 处理方式 |
 |------|------|---------|
-| **镜像同步至中国区 ECR** | `ghcr.io` 和 Docker Hub 不可访问 | 运行 `build-and-mirror.sh` |
+| **镜像同步至中国区 ECR** | `ghcr.io` 和 Docker Hub 不可访问 | 运行 `china-image-mirror.sh` |
 | **第三方模型提供商** | Amazon Bedrock **不在中国区域运营** | 使用 LiteLLM 代理或直接 API Key |
 | **AWS 中国账户** | 独立分区（`aws-cn`） | 需要单独的 IAM 凭证 |
 | **AWS CLI Profile** | 中国账户需要独立的 Profile | `aws configure --profile china` |
@@ -52,11 +52,11 @@ AWS 中国区域（`cn-northwest-1`、`cn-north-1`）存在网络限制：
 
 | 依赖类型 | 来源地址 | 用途 | 阻断级别 | 解决方案 |
 |----------|---------|------|---------|---------|
-| **Helm Chart (OCI)** | `oci://ghcr.io/openclaw-rocks/charts` | OpenClaw Operator | 完全阻断 | `build-and-mirror.sh` 同步至 ECR，TF 自动使用 `chart_repository` |
+| **Helm Chart (OCI)** | `oci://ghcr.io/openclaw-rocks/charts` | OpenClaw Operator | 完全阻断 | `china-image-mirror.sh` 同步至 ECR，TF 自动使用 `chart_repository` |
 | **Helm Chart (OCI)** | `oci://ghcr.io/kata-containers/kata-deploy-charts` | Kata Containers（可选） | 完全阻断 | 同上 |
 | **Helm Chart (OCI)** | `oci://ghcr.io/berriai/litellm-helm` | LiteLLM 代理（可选） | 完全阻断 | 同上 |
 | **Helm Chart (HTTPS)** | `https://aws.github.io/eks-charts` | ALB Controller（可选） | 间歇性慢 | GitHub Pages 通常可达；超时则需 VPN |
-| **容器镜像** | `ghcr.io/*` | OpenClaw、Operator、uv、Tailscale | 完全阻断 | `build-and-mirror.sh` 同步 + `spec.registry` 重写 |
+| **容器镜像** | `ghcr.io/*` | OpenClaw、Operator、uv、Tailscale | 完全阻断 | `china-image-mirror.sh` 同步 + `spec.registry` 重写 |
 | **容器镜像** | Docker Hub (`docker.io`) | nginx、OTel、chromium、ollama、ttyd、rclone、busybox | 完全阻断 | 同上 |
 | **容器镜像** | `quay.io` | Kata Containers 默认镜像 | 完全阻断 | TF 模块已重写至 `public.ecr.aws` |
 | **容器镜像** | `public.ecr.aws` | 监控栈、Karpenter、LiteLLM、Kata、ALB Controller 镜像 | **可访问**（AWS 服务） | 无需额外操作 |
@@ -65,7 +65,7 @@ AWS 中国区域（`cn-northwest-1`、`cn-north-1`）存在网络限制：
 | **npm Registry** | `registry.npmjs.org` | Operator init-skills（运行时） | 完全阻断 | 避免在 CRD 中使用 `spec.skills`（npm 前缀）；或预装至镜像 |
 | **GitHub API** | `api.github.com` | Operator init-skills（pack: 前缀） | 完全阻断 | 避免使用 `pack:` 前缀的 skills |
 
-> **重要：** `terraform apply` 需要拉取 Helm Chart。在中国区域运行 Terraform 时，必须先执行 `build-and-mirror.sh` 将 Helm Chart 同步至 ECR，Terraform 会自动使用 ECR 作为 Chart 仓库。在全球区域运行 Terraform（远程连接中国 EKS API Server）则无此限制。
+> **重要：** `terraform apply` 需要拉取 Helm Chart。在中国区域运行 Terraform 时，必须先执行 `china-image-mirror.sh` 将 Helm Chart 同步至 ECR，Terraform 会自动使用 ECR 作为 Chart 仓库。在全球区域运行 Terraform（远程连接中国 EKS API Server）则无此限制。
 
 #### Helm Chart 使用的容器镜像全景
 
@@ -88,7 +88,7 @@ AWS 中国区域（`cn-northwest-1`、`cn-north-1`）存在网络限制：
 | **litellm** | `oci://ghcr.io/berriai/litellm-helm` | `docker.litellm.ai/berriai/litellm:main-latest` | docker.litellm.ai | ❌ 需同步 |
 | | | `public.ecr.aws/bitnami/postgresql:latest` | ECR Public | ✅ |
 
-> **结论：** `build-and-mirror.sh` 会将所有上游镜像同步至中国区私有 ECR，Terraform 自动为中国区域使用 ECR 镜像。仅 `public.ecr.aws` 上的镜像（ALB Controller、Karpenter、PostgreSQL）无需额外同步。
+> **结论：** `china-image-mirror.sh` 会将所有上游镜像同步至中国区私有 ECR，Terraform 自动为中国区域使用 ECR 镜像。仅 `public.ecr.aws` 上的镜像（ALB Controller、Karpenter、PostgreSQL）无需额外同步。
 
 #### 中国区模型提供商
 
@@ -111,13 +111,13 @@ kubectl -n openclaw patch openclawinstance AGENT名称 --type=merge \
 在具有良好国际网络的机器上运行（如全球区域的 EC2 实例）：
 
 ```bash
-bash eks/scripts/build-and-mirror.sh \
+bash eks/scripts/china-image-mirror.sh \
   --region cn-northwest-1 \
   --name openclaw-cn \
   --profile china
 ```
 
-该脚本构建管理控制台镜像，同步全部 11 个 Operator 容器镜像至中国区 ECR，并同步 Helm Chart OCI 制品：
+该脚本同步全部 21 个容器镜像至中国区 ECR，并同步 Helm Chart OCI 制品：
 
 **容器镜像（11 个）：**
 
@@ -149,18 +149,16 @@ bash eks/scripts/build-and-mirror.sh \
 
 创建完整基础设施：VPC、EKS 集群、EFS、ALB Controller、OpenClaw Operator、管理控制台（含 Ingress）及所有 AWS 支撑资源。
 
-### 第一步：构建并推送镜像（必须在 terraform apply 之前执行）
+### 第一步：同步镜像至 ECR（中国区域必须在 terraform apply 之前执行）
 
-> **⚠ 中国区域必须先执行此步骤。** `terraform apply` 会安装 Helm Chart 和拉取容器镜像。在中国区域，这些来源（ghcr.io、quay.io、Docker Hub、registry.k8s.io）均被阻断。`build-and-mirror.sh` 会将所有 Helm Chart 和容器镜像同步至中国区 ECR，Terraform 自动使用 ECR 作为来源。**跳过此步骤将导致 `terraform apply` 失败。**
-
-Terraform 会创建 ECR 仓库，但不会构建 Docker 镜像。需先执行：
+> **⚠ 中国区域必须先执行此步骤。** `terraform apply` 会安装 Helm Chart 和拉取容器镜像。在中国区域，这些来源（ghcr.io、quay.io、Docker Hub、registry.k8s.io）均被阻断。`china-image-mirror.sh` 会将所有 Helm Chart 和容器镜像同步至中国区 ECR，Terraform 自动使用 ECR 作为来源。**跳过此步骤将导致 `terraform apply` 失败。**
 
 ```bash
-# 全球区域
-bash eks/scripts/build-and-mirror.sh --region us-west-2 --name openclaw-prod
+# 中国区域（同步所有容器镜像和 Helm Chart 至 ECR）
+bash eks/scripts/china-image-mirror.sh --region cn-northwest-1 --name openclaw-cn --profile china
 
-# 中国区域（同时同步所有 Operator 镜像）
-bash eks/scripts/build-and-mirror.sh --region cn-northwest-1 --name openclaw-cn --profile china
+# 全球区域通常不需要（镜像从上游直接拉取），但如需 air-gapped 部署：
+# bash eks/scripts/china-image-mirror.sh --region us-west-2 --name openclaw-prod
 ```
 
 ### 第二步：Terraform apply
@@ -911,11 +909,11 @@ kubectl -n openclaw port-forward svc/admin-console 8099:8099
 
 ### 镜像更新流程
 
-后续更新镜像时，重复步骤 2-6（仅拉取变更的镜像）。也可使用 `build-and-mirror.sh` 的 `--platform` 参数：
+后续更新镜像时，重复步骤 2-6（仅拉取变更的镜像）。也可使用 `china-image-mirror.sh` 的 `--platform` 参数：
 
 ```bash
 # 在可访问境外 registry 的机器上
-bash eks/scripts/build-and-mirror.sh \
+bash eks/scripts/china-image-mirror.sh \
   --region cn-northwest-1 \
   --name openclaw-cn \
   --profile china \

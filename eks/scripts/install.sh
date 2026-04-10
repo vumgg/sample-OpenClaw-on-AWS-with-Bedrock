@@ -158,16 +158,16 @@ if $IS_CHINA; then
   echo -e "${YELLOW}  China region detected — mirroring images and Helm charts to ECR...${NC}"
   echo -e "  This is ${BOLD}required${NC} before terraform apply (ghcr.io, quay.io, Docker Hub are blocked)."
   echo ""
-  MIRROR_SCRIPT="${SCRIPT_DIR}/build-and-mirror.sh"
+  MIRROR_SCRIPT="${SCRIPT_DIR}/china-image-mirror.sh"
   if [[ -f "$MIRROR_SCRIPT" ]]; then
-    MIRROR_ARGS="--region ${REGION} --name ${NAME} --skip-build"
+    MIRROR_ARGS="--region ${REGION} --name ${NAME}"
     if [[ -n "${AWS_PROFILE:-}" ]]; then
       MIRROR_ARGS="$MIRROR_ARGS --profile ${AWS_PROFILE}"
     fi
     bash "$MIRROR_SCRIPT" $MIRROR_ARGS
   else
-    echo -e "${RED}  Error: build-and-mirror.sh not found at ${MIRROR_SCRIPT}${NC}"
-    echo -e "  Run it manually: bash eks/scripts/build-and-mirror.sh --region ${REGION} --name ${NAME}"
+    echo -e "${RED}  Error: china-image-mirror.sh not found at ${MIRROR_SCRIPT}${NC}"
+    echo -e "  Run it manually: bash eks/scripts/china-image-mirror.sh --region ${REGION} --name ${NAME}"
     exit 1
   fi
 fi

@@ -59,7 +59,7 @@ Every agent uses the same Docker image. Admin chooses the deployment mode per ag
 | **Cluster management** | Discover and associate EKS clusters from the Admin Console (Settings → EKS) |
 | **Internet access** | ALB Ingress (enabled by default in Terraform), custom domain + HTTPS via ACM |
 | **Helm chart** | Admin console packaged as Helm chart: ServiceAccount, RBAC, Deployment, Service, Ingress |
-| **China region** | `build-and-mirror.sh` mirrors operator images to China ECR; `globalRegistry` CRD field rewrites all image registries |
+| **China region** | `china-image-mirror.sh` mirrors operator images to China ECR; `globalRegistry` CRD field rewrites all image registries |
 | **Deploy API** | Full infra configuration: model, CPU/memory, storage, runtime class (Kata), chromium sidecar, backup, node selector, tolerations |
 | **Best for** | Teams already running on Kubernetes, multi-cluster deployments, Graviton/GPU workloads, AWS China regions |
 

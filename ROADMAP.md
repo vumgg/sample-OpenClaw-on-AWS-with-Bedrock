@@ -109,7 +109,7 @@ Target: **v1.0 by April 30, 2026** — production-ready multi-tenant OpenClaw pl
 - [x] Standalone `deploy-eks.sh` using Helm chart (includes RBAC automatically)
 - [x] Dockerfile for containerized deployment
 - [x] ALB Ingress for internet access (enabled by default in Terraform)
-- [x] China region support: `build-and-mirror.sh` mirrors images, `globalRegistry` CRD override
+- [x] China region support: `china-image-mirror.sh` mirrors images, `globalRegistry` CRD override
 - [x] Shared config with ECS: full `openclaw.json`, SOUL layers from S3, env vars
 - [x] Seed data in Terraform: `null_resource` with no-overwrite mode
 - [x] 70 unit tests (k8s_client, admin_eks router) + integration test script

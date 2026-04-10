@@ -271,7 +271,7 @@ WhatsApp 和 Telegram 支持语音消息 — OpenClaw 会转录并回复。
 
 ```bash
 # 1. 构建镜像（如果是 cn- 区域，会自动镜像到中国 ECR）
-bash eks/scripts/build-and-mirror.sh --region us-west-2 --name openclaw-prod
+bash eks/scripts/china-image-mirror.sh --region us-west-2 --name openclaw-prod
 
 # 2. 部署 VPC + EKS + Operator + 管理控制台 + Ingress
 cd eks/terraform && terraform apply \
@@ -296,7 +296,7 @@ bash deploy-eks.sh --cluster YOUR_CLUSTER --region us-west-2 --password YOUR_PAS
 | **三种运行时** | Serverless（AgentCore）+ ECS（Fargate）+ **EKS（CRD 托管 Pod）** |
 | **Operator 托管** | OpenClaw Operator 监听 CRD → StatefulSet + Service + PVC + ConfigMap |
 | **部署界面** | Agent Factory → EKS → 部署智能体弹窗（模型、资源、存储、Sidecar） |
-| **中国区支持** | `build-and-mirror.sh` 将镜像同步到中国 ECR，`globalRegistry` CRD 覆盖 |
+| **中国区支持** | `china-image-mirror.sh` 将镜像同步到中国 ECR，`globalRegistry` CRD 覆盖 |
 | **集成测试** | `eks/scripts/integration-test.sh` — 验证完整的部署/重载/停止流程 |
 
 **[→ EKS 部署指南 (EN)](docs/DEPLOYMENT_EKS.md)** · **[→ EKS 部署指南 (中文)](docs/DEPLOYMENT_EKS_CN.md)**

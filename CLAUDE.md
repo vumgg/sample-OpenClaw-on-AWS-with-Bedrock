@@ -24,7 +24,7 @@ The **Enterprise Platform** adds multi-tenant agent management: an Admin Console
 │   │   │   └── storage/               # EFS/EBS CSI drivers, StorageClass
 │   │   └── variables.tf / outputs.tf
 │   ├── manifests/examples/            # OpenClawInstance CRD examples
-│   └── scripts/                       # install, cleanup, validate, integration-test, build-and-mirror
+│   └── scripts/                       # install, cleanup, validate, integration-test, china-image-mirror
 ├── enterprise/
 │   ├── admin-console/                 # Admin Console application
 │   │   ├── server/                    # FastAPI backend
@@ -196,7 +196,7 @@ terraform apply
 
 ## China Region Specifics
 
-- **ghcr.io inaccessible** — all images must be mirrored to China ECR via `eks/scripts/build-and-mirror.sh`
+- **ghcr.io inaccessible** — all images must be mirrored to China ECR via `eks/scripts/china-image-mirror.sh`
 - **Global Registry override** (`spec.registry` in CRD) rewrites ALL container image registries
 - **No Bedrock** — use third-party model providers instead
 - **ECR Public auth** — conditional in Terraform (us-east-1 doesn't exist in aws-cn)

@@ -111,14 +111,14 @@ Standard deployment. Default architecture is `arm64` (Graviton). Bedrock is avai
 
 This builds the admin console Docker image and pushes it to ECR. For China, it also mirrors all 10 operator images.
 
-Run this BEFORE `terraform apply` -- Terraform creates the ECR repository during apply, but the `build-and-mirror.sh` script creates it independently if needed.
+Run this BEFORE `terraform apply` -- Terraform creates the ECR repository during apply, but the `china-image-mirror.sh` script creates it independently if needed.
 
 ### Global
 
 ```bash
 cd /path/to/sample-OpenClaw-on-AWS-with-Bedrock
 
-bash eks/scripts/build-and-mirror.sh \
+bash eks/scripts/china-image-mirror.sh \
   --region us-west-2 \
   --name openclaw-prod
 ```
@@ -128,7 +128,7 @@ bash eks/scripts/build-and-mirror.sh \
 ```bash
 cd /path/to/sample-OpenClaw-on-AWS-with-Bedrock
 
-bash eks/scripts/build-and-mirror.sh \
+bash eks/scripts/china-image-mirror.sh \
   --region cn-northwest-1 \
   --name openclaw-cn \
   --profile china
@@ -332,7 +332,7 @@ kubectl get nodes
 
 **Error: ECR repository empty (admin console pod in ImagePullBackOff)**
 
-Terraform creates the ECR repo but does not build the image. If you skipped Step 1, go back and run `build-and-mirror.sh`.
+Terraform creates the ECR repo but does not build the image. If you skipped Step 1, go back and run `china-image-mirror.sh`.
 
 **Error: State lock**
 
@@ -366,7 +366,7 @@ EKS cluster creation can take 15-20 minutes. If it times out, re-run `terraform 
 
 ## Step 3: Push Admin Console Image (if not done in Step 1)
 
-If you already ran `build-and-mirror.sh` in Step 1, the image is in ECR. Verify:
+If you already ran `china-image-mirror.sh` in Step 1, the image is in ECR. Verify:
 
 ```bash
 ECR_URI=$(cd /path/to/sample-OpenClaw-on-AWS-with-Bedrock/eks/terraform && terraform output -raw admin_console_ecr)
@@ -676,7 +676,7 @@ kubectl -n openclaw describe pod -l app=admin-console | grep -A5 "Events:"
     curl -X POST .../deploy -d '{"globalRegistry":"ACCOUNT.dkr.ecr.cn-northwest-1.amazonaws.com.cn"}'
     ```
 - **No (Global):** ECR image does not exist.
-  - Run Step 1 (`build-and-mirror.sh`) to build and push the image.
+  - Run Step 1 (`china-image-mirror.sh`) to build and push the image.
   - Verify:
     ```bash
     ECR_URI=$(cd eks/terraform && terraform output -raw admin_console_ecr)
@@ -883,7 +883,7 @@ REPO_ROOT="/path/to/sample-OpenClaw-on-AWS-with-Bedrock"
 
 # Step 1: Build images
 cd "$REPO_ROOT"
-bash eks/scripts/build-and-mirror.sh --region "$DEPLOY_REGION" --name "$DEPLOY_NAME"
+bash eks/scripts/china-image-mirror.sh --region "$DEPLOY_REGION" --name "$DEPLOY_NAME"
 
 # Step 2: Terraform
 cd "$REPO_ROOT/eks/terraform"

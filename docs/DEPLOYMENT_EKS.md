@@ -41,7 +41,7 @@ AWS China regions (`cn-northwest-1`, `cn-north-1`) have network restrictions:
 
 | Requirement | Why | How |
 |-------------|-----|-----|
-| **Image mirror to China ECR** | `ghcr.io` and Docker Hub are inaccessible | Run `build-and-mirror.sh` (see below) |
+| **Image mirror to China ECR** | `ghcr.io` and Docker Hub are inaccessible | Run `china-image-mirror.sh` (see below) |
 | **Third-party model provider** | Amazon Bedrock is **not available** in China | Use LiteLLM proxy or direct API keys |
 | **AWS China account** | Separate partition (`aws-cn`) | Separate IAM credentials |
 | **AWS CLI profile** | China account needs its own profile | `aws configure --profile china` |
@@ -64,10 +64,10 @@ kubectl -n openclaw patch openclawinstance AGENT_NAME --type=merge \
 
 #### Mirror container images to China ECR
 
-Run the build-and-mirror script from a machine with global internet access:
+Run the mirror script from a machine with global internet access:
 
 ```bash
-bash eks/scripts/build-and-mirror.sh \
+bash eks/scripts/china-image-mirror.sh \
   --region cn-northwest-1 \
   --name openclaw-cn \
   --profile china
@@ -101,10 +101,10 @@ Terraform creates the ECR repository but does not build the Docker image. Run th
 
 ```bash
 # Global
-bash eks/scripts/build-and-mirror.sh --region us-west-2 --name openclaw-prod
+bash eks/scripts/china-image-mirror.sh --region us-west-2 --name openclaw-prod
 
 # China (also mirrors all operator images)
-bash eks/scripts/build-and-mirror.sh --region cn-northwest-1 --name openclaw-cn --profile china
+bash eks/scripts/china-image-mirror.sh --region cn-northwest-1 --name openclaw-cn --profile china
 ```
 
 ### Step 2: Terraform apply
@@ -832,11 +832,11 @@ kubectl -n openclaw port-forward svc/admin-console 8099:8099
 
 ### Image Update Workflow
 
-To update images later, repeat Steps 2-6 (pull only changed images). You can also use `build-and-mirror.sh` with the `--platform` flag:
+To update images later, repeat Steps 2-6 (pull only changed images). You can also use `china-image-mirror.sh` with the `--platform` flag:
 
 ```bash
 # On a machine with overseas registry access
-bash eks/scripts/build-and-mirror.sh \
+bash eks/scripts/china-image-mirror.sh \
   --region cn-northwest-1 \
   --name openclaw-cn \
   --profile china \

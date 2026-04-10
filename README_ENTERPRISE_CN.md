@@ -62,7 +62,7 @@
 | **集群管理** | 在管理控制台发现并关联 EKS 集群（设置 → EKS） |
 | **互联网访问** | ALB Ingress（Terraform 默认启用），自定义域名 + HTTPS（ACM 证书） |
 | **Helm Chart** | 管理控制台打包为 Helm Chart：ServiceAccount、RBAC、Deployment、Service、Ingress |
-| **中国区域** | `build-and-mirror.sh` 同步 Operator 镜像至中国区 ECR；`globalRegistry` CRD 字段重写所有镜像仓库 |
+| **中国区域** | `china-image-mirror.sh` 同步 Operator 镜像至中国区 ECR；`globalRegistry` CRD 字段重写所有镜像仓库 |
 | **部署 API** | 完整基础设施配置：模型、CPU/内存、存储、运行时类（Kata）、Chromium Sidecar、备份、节点选择器、容忍度 |
 | **适用场景** | 已在 Kubernetes 上运行的团队、多集群部署、Graviton/GPU 工作负载、AWS 中国区域 |
 

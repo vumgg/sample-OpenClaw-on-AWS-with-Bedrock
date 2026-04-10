@@ -334,7 +334,7 @@ Built on top of the Multi-Tenant AgentCore Runtime, the Enterprise platform adds
 
 ```bash
 # 1. Build images (mirrors to China ECR if cn- region)
-bash eks/scripts/build-and-mirror.sh --region us-west-2 --name openclaw-prod
+bash eks/scripts/china-image-mirror.sh --region us-west-2 --name openclaw-prod
 
 # 2. Deploy VPC + EKS + Operator + Admin Console + Ingress
 cd eks/terraform && terraform apply \
@@ -359,7 +359,7 @@ bash deploy-eks.sh --cluster YOUR_CLUSTER --region us-west-2 --password YOUR_PAS
 | **Three runtimes** | Serverless (AgentCore) + ECS (Fargate) + **EKS (CRD-managed pods)** |
 | **Operator-managed** | OpenClaw Operator watches CRDs → StatefulSet + Service + PVC + ConfigMap |
 | **Deploy UI** | Agent Factory → EKS → Deploy Agent modal (model, resources, storage, sidecars) |
-| **China region support** | `build-and-mirror.sh` mirrors images to China ECR, `globalRegistry` CRD override |
+| **China region support** | `china-image-mirror.sh` mirrors images to China ECR, `globalRegistry` CRD override |
 | **Integration test** | `eks/scripts/integration-test.sh` — validates full deploy/reload/stop cycle |
 
 **[→ EKS Deployment Guide (EN)](docs/DEPLOYMENT_EKS.md)** · **[→ EKS 部署指南 (中文)](docs/DEPLOYMENT_EKS_CN.md)**
