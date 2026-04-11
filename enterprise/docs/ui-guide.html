@@ -692,166 +692,242 @@ agents: { en:{title:'Agent Factory',sub:'Fleet management — 15 audit findings 
       '<h4>Agent 创建流程（非事务性）</h4><div class="code">1. 创建 AGENT# → 2. 创建 BIND# → 3. 种子 S3 工作区\n4. 更新 EMP# → 5. 创建 AUDIT#\n\n⚠ 每步独立。步骤 3 失败时 1-2 已提交。无回滚。</div><h4 style="color:var(--danger)">⚠️ 审计发现（15 项）</h4><p style="color:var(--danger);font-weight:600">高</p><div style="border-left:3px solid var(--danger);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8"><p><strong>#1</strong> 创建非事务性。<strong>#2</strong> 删除未实现。<strong>#3</strong> Admin 助手可访问 EC2 所有文件。<strong>#4</strong> SOUL 版本非原子。</p></div><p style="color:var(--warn);font-weight:600">中</p><div style="border-left:3px solid var(--warn);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8"><p><strong>#5</strong> 部署模式迁移无清理。<strong>#6</strong> ECS 任务定义累积。<strong>#7</strong> 质量分从未更新。<strong>#8</strong> 技能分配无验证。<strong>#9</strong> Bot Token 在 ECS 环境变量中明文暴露。</p></div>'
     ); }},
 
-skills: { en:{title:'Skill Market — Agent App Store',sub:'3-layer skill system with position-level assignment. 19 audit findings documented below.'}, zh:{title:'技能市场 — Agent 应用商店',sub:'三层技能系统，岗位级分配。以下记录了 19 项审计发现。'}, body(){ return intent(
+skills: { en:{title:'Skill Market — Agent App Store',sub:'3-layer skill system. Code audit: 19 verified findings, 2 CRITICAL production bugs.'}, zh:{title:'技能市场 — Agent 应用商店',sub:'三层技能系统。代码审计：19 项已验证发现，2 个关键生产 bug。'}, body(){ return intent(
       t(
-        '<strong>Why position-level skill assignment?</strong> Two reasons: <strong>cost</strong> (third-party API keys have usage limits — sharing one Salesforce key across 500 agents is wasteful and risky) and <strong>security</strong> (giving all agents CRM access means 500 potential data leak points). Position-level means: 20 Sales agents share one CRM key, 30 Engineers share one GitHub token. AWS-native skills (Bedrock KB Search, Nova Canvas) use IAM roles — <strong>zero API key management</strong>. The 3-layer architecture lets IT pre-bake common skills into Docker (Layer 1, instant) while allowing hot-deployment of new skills via S3 (Layer 2, no image rebuild needed).',
-        '<strong>为什么岗位级技能分配？</strong>两个原因：<strong>成本</strong>（第三方 API Key 有使用限制——500 Agent 共享一个 Salesforce Key 浪费且危险）和<strong>安全</strong>（所有 Agent 有 CRM 访问 = 500 个数据泄露点）。岗位级意味着：20 销售 Agent 共享一个 CRM Key，30 工程师共享一个 GitHub Token。AWS 原生技能用 IAM 角色——<strong>零 API Key 管理</strong>。三层架构让 IT 预构建常用技能到 Docker（L1，即时），同时支持通过 S3 热部署新技能（L2，无需重建镜像）。'
+        '<strong>Why position-level skill assignment?</strong> Two concerns: <strong>cost</strong> (third-party APIs have rate limits — giving 500 agents your Salesforce API key is risky) and <strong>security</strong> (CRM access should only go to Sales agents). Position-level means: assign once for "Account Executive" → all 50 AE agents get it. AWS-native skills (Bedrock KB Search, Nova Canvas) use IAM roles — <strong>zero API key management</strong>. The 3-layer architecture balances cold-start speed (Layer 1 in Docker, instant) with flexibility (Layer 2 from S3, no rebuild needed). <strong>However: our code audit found that the role-based filtering system is fundamentally broken — see CRITICAL findings below. All 20 department-specific skills are currently inaccessible to all employees.</strong>',
+        '<strong>为什么岗位级技能分配？</strong>两个考虑：<strong>成本</strong>（第三方 API 有速率限制）和<strong>安全</strong>（CRM 访问只应给销售 Agent）。岗位级意味着：为"客户经理"分配一次 → 50 个 AE Agent 都获得。AWS 原生技能用 IAM 角色——<strong>零 API Key 管理</strong>。三层架构平衡冷启动速度和灵活性。<strong>但代码审计发现角色过滤系统根本性损坏——见下方关键发现。目前所有 20 个部门技能对所有员工不可访问。</strong>'
       )
     )
     + sectionHead(t('How to Assign Skills','如何分配技能'))
     + steps(t('Operations:','操作：'),t([
-      'Skill Market (sidebar) → browse 26 skills. Each shows: name, layer (L1/L2), prerequisites.',
-      'Click skill → Step 1: Prerequisites. AWS-native = "IAM Role" (zero config). Third-party = "API Key Required".',
-      'Step 2: Assign to Position → all agents in that position get the skill on next session.',
-      'API keys: SSM path <code>/openclaw/{stack}/skill-keys/{skill_name}/{ENV_VAR}</code>.'
+      'Skill Market (sidebar) → browse 26 skills. Each shows: name, layer (L1/L2), category, prerequisites.',
+      'Click skill → Step 1: Prerequisites. AWS-native = "IAM Role" (zero config). Third-party = "API Key Required" → must add to SSM first.',
+      'Step 2: Assign to Position → all agents in that position get the skill on next session start.',
+      'API keys stored in SSM: <code>/openclaw/{stack}/skill-keys/{skill_name}/{ENV_VAR}</code>. Global keys: <code>_global/{ENV_VAR}</code>.'
     ],[
-      'Skill Market（侧边栏）→ 浏览 26 个技能。显示：名称、层级（L1/L2）、前置条件。',
-      '点击技能 → 步骤 1：前置条件。AWS 原生 = "IAM Role"（零配置）。第三方 = "需要 API Key"。',
-      '步骤 2：分配给岗位 → 该岗位所有 Agent 在下次会话获得技能。',
-      'API Key：SSM 路径 <code>/openclaw/{stack}/skill-keys/{skill_name}/{ENV_VAR}</code>。'
+      'Skill Market（侧边栏）→ 浏览 26 个技能。显示：名称、层级、分类、前置条件。',
+      '点击技能 → 步骤 1：前置条件。AWS 原生 = "IAM Role"（零配置）。第三方 = "需要 API Key" → 先添加到 SSM。',
+      '步骤 2：分配给岗位 → 该岗位所有 Agent 在下次会话开始时获得技能。',
+      'API Key 存储在 SSM：<code>/openclaw/{stack}/skill-keys/{skill_name}/{ENV_VAR}</code>。全局 Key：<code>_global/{ENV_VAR}</code>。'
     ]))
     + deep(
-t(`<h4>3-Layer Architecture</h4>
+t(`<h4>3-Layer Architecture (Verified)</h4>
 <table class="tbl">
-<tr><th>Layer</th><th>Location</th><th>Load Time</th><th>Add New Skill</th><th>Examples</th></tr>
-<tr><td><strong>L1 Built-in</strong></td><td>Docker image (Dockerfile SKILLS_PREINSTALL)</td><td>0s (always in image)</td><td>Modify Dockerfile → rebuild → ECR push → Runtime update (~15 min)</td><td>jina-reader, deep-research, web-search, github, notion, summarize</td></tr>
-<tr><td><strong>L2 S3 Hot-load</strong></td><td>s3://{bucket}/_shared/skills/{name}/skill.json</td><td>~2s at container startup</td><td>Upload skill.json to S3 (instant, no rebuild)</td><td>crm-query, sap-connector, excel-gen, jira-query</td></tr>
-<tr><td><strong>L3 SSM Bundles</strong></td><td>SSM catalog → S3 tar.gz</td><td>~5s (download + extract)</td><td>Upload tar.gz + register in SSM</td><td>Custom enterprise skills with dependencies</td></tr>
+<tr><th>Layer</th><th>Where</th><th>Load Time</th><th>How to Add</th><th>Permission Filtered?</th></tr>
+<tr><td><strong>L1 Built-in</strong></td><td>Docker image<br><code>Dockerfile:36-43 SKILLS_PREINSTALL</code></td><td>0s (in image)</td><td>Modify Dockerfile → rebuild (~15 min)</td><td>No (always loaded)</td></tr>
+<tr><td><strong>L2 S3 Hot-load</strong></td><td><code>s3://{bucket}/_shared/skills/{name}/skill.json</code></td><td>~2s startup</td><td>Upload skill.json to S3 (instant)</td><td><strong>Yes</strong> (<code>skill_loader.py:115</code>)</td></tr>
+<tr><td><strong>L3 SSM Bundles</strong></td><td>SSM catalog → S3 tar.gz</td><td>~5s download+extract</td><td>Upload tar.gz + register SSM</td><td><strong>No!</strong> (see finding #10)</td></tr>
 </table>
 
-<h4>Skill Loading Process (skill_loader.py, 283 lines)</h4>
+<h4>Complete Skill Loading Flow (skill_loader.py, 283 lines — read line by line)</h4>
 <div class="code">Container startup → entrypoint.sh (background) calls:
-  python skill_loader.py --tenant TENANT_ID --bucket S3_BUCKET ...
+  python skill_loader.py --tenant TENANT_ID --bucket S3 --stack STACK --region REGION
 
-1. get_tenant_roles(): SSM /openclaw/{stack}/tenants/{tenant_id}/roles
-   → Returns role list like ["sales","management"]
-   → If SSM read fails: fallback to ["employee"] ← SEE AUDIT ISSUE #2
+Step 1: get_tenant_roles() [line 35-46]
+  → SSM: /openclaw/{stack}/tenants/{tenant_id}/roles
+  → If SSM read fails (ClientError): return ["employee"]
+  ⚠ THIS ALWAYS FAILS — no code anywhere writes this SSM parameter.
+    Result: tenant_roles = ["employee"] for EVERY employee.
 
-2. Layer 1: Already at /root/.openclaw/skills/ (Docker image)
-   → No loading needed, no permission filtering
+Step 2: load_layer2_skills() [line 88-138]
+  → aws s3 sync _shared/skills/ → /tmp/_shared_tmp/ [line 97-101]
+  → For each skill dir: read skill.json → is_skill_allowed(manifest, roles) [line 114-115]
+  → If allowed: os.rename to workspace/skills/ [line 118]
+  → If denied: skip (log at INFO level, no audit) [line 122]
 
-3. Layer 2: aws s3 sync _shared/skills/ → /tmp/skills/_shared_tmp/
-   → For each skill: read skill.json → is_skill_allowed(manifest, roles)
-   → If allowed: move to /workspace/skills/{name}/
-   → If denied: skip silently (no audit log) ← SEE AUDIT ISSUE #19
+Step 3: load_layer3_bundles() [line 141-178]
+  → Read SSM catalog → download tar.gz → extract to skills/
+  → ⚠ NO permission filtering — all bundles extracted for all tenants [line 164-166]
 
-4. Layer 3: SSM catalog → download tar.gz → extract
-   → NO permission filtering ← SEE AUDIT ISSUE #11
+Step 4: inject_skill_keys() [line 181-241]
+  → For each loaded skill: read manifest.requires.env
+  → For each env var: SSM /openclaw/{stack}/skill-keys/{skill}/{env_var} [line 205-207]
+  → Also: SSM /openclaw/{stack}/skill-keys/_global/* [line 218-231]
+  → Write all to /tmp/skill_env.sh as: export KEY='value' [line 234-238]
+  → server.py re-sources this file before each invocation [server.py:469-480]</div>
 
-5. API Key injection:
-   Per-skill: /openclaw/{stack}/skill-keys/{skill_name}/{env_var}
-   Global:    /openclaw/{stack}/skill-keys/_global/{env_var}
-   → Write all to /tmp/skill_env.sh as export KEY='value'
-   → server.py re-sources this file per invocation</div>
-
-<h4>Permission Filtering Logic</h4>
+<h4>Permission Filtering Logic (line 62-85 — verified)</h4>
 <div class="code">is_skill_allowed(manifest, tenant_roles):
-  1. manifest is None → return True (no restrictions) ← ISSUE #4
-  2. Any tenant role in blockedRoles → DENY
-  3. "*" in allowedRoles → ALLOW (global skill)
-  4. Any tenant role in allowedRoles → ALLOW
-  5. Otherwise → DENY (silent skip)</div>
+  Line 64: if not manifest → return True
+    ⚠ CONFIRMED: None/corrupt manifest = no restrictions
+  Line 72-75: if any role in blockedRoles → False
+  Line 78-79: if "*" in allowedRoles → True  (global skills)
+  Line 80-82: if any role in allowedRoles → True
+  Line 85: return False  (denied silently)
 
-<h4>skill.json Manifest Format</h4>
+With tenant_roles = ["employee"] (always, due to SSM bug):
+  - Global skills (allowedRoles: ["*"]) → ALLOWED ✓
+  - Department skills (allowedRoles: ["sales","csm"]) → DENIED ✗
+  - "employee" is NOT in ["sales","csm","engineering",...]
+
+Result: Only 6 global skills work. 20 department skills blocked.</div>
+
+<h4>skill.json Manifest Example (from seed_skills_final.py)</h4>
 <div class="code">{
   "name": "crm-query",
-  "requires": { "env": ["CRM_API_KEY", "CRM_ENDPOINT"] },
+  "requires": {
+    "env": ["SF_CLIENT_ID", "SF_CLIENT_SECRET", "SF_INSTANCE_URL"]
+    // ⚠ These are COMPANY-level credentials (one Salesforce tenant).
+    // All employees sharing this skill use the SAME API key.
+    // Per-employee keys NOT supported (see finding #6).
+  },
   "permissions": {
     "allowedRoles": ["sales", "csm", "management"],
+    // ⚠ "sales" is a department-level name, NOT a position ID.
+    // pos-ae maps to... nothing. No mapping code exists.
     "blockedRoles": ["intern"]
   }
-}
-// Note: "sales" is a department-level role name, NOT a position ID (pos-ae).
-// Role resolution is through SSM, not DynamoDB position mapping.</div>
+}</div>
 
-<h4 style="color:var(--danger)">⚠️ AUDIT FINDINGS (19 issues, 2 CRITICAL)</h4>
+<h4>26 Skills by Role Assignment</h4>
+<div class="code">GLOBAL (allowedRoles: ["*"]) — 6 skills, work for everyone:
+  web-search, jina-reader, deep-research, s3-files, summarize, self-improving-agent
 
-<p style="font-size:13px;font-weight:600;color:var(--danger);margin:12px 0 8px">CRITICAL Issues</p>
-<div style="border-left:3px solid var(--danger);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8">
-<p><strong>#1 Role taxonomy mismatch:</strong> skill.json uses department roles ("sales", "engineering") but the system has position IDs ("pos-ae", "pos-sde"). The SSM parameter <code>/tenants/{id}/roles</code> that maps between them is <strong>never populated by any code</strong>. Roles default to ["employee"] which blocks all department skills.</p>
-<p><strong>#2 "employee" fallback blocks 99% of skills:</strong> If SSM role read fails (which it always does since no code writes it), tenant gets ["employee"]. Almost no skills have "employee" in allowedRoles. Only global ("*") skills work. <strong>This means: department-specific skills (CRM, GitHub, Jira) are likely not loading for any employee.</strong></p>
+ENGINEERING (allowedRoles: ["engineering","devops","qa"]) — 3 skills:
+  github (needs GITHUB_TOKEN), jira-query (needs JIRA_API_TOKEN), firecrawl
+
+SALES/CSM — 6 skills:
+  crm-query (needs SF_*), aws-ses-mailer, aws-nova-sonic-caller, aws-sns-notify,
+  pptx-creator, aws-nova-canvas
+
+PRODUCT — 2 skills: notion (needs NOTION_API_KEY), transcript
+FINANCE — 3 skills: sap-connector, excel-gen, aws-s3-docs
+HR — 3 skills: himalaya (needs IMAP/SMTP creds), calendar-check, aws-transcribe-notes
+LEGAL — 1 skill: aws-bedrock-kb-search
+CROSS-DEPT — 2 skills: gog (Google Workspace), skill-vetter
+
+⚠ ALL 20 non-global skills are currently BLOCKED because
+   get_tenant_roles() always returns ["employee"].</div>
+
+<h4 style="color:var(--danger)">⚠️ VERIFIED AUDIT FINDINGS</h4>
+
+<p style="font-size:14px;font-weight:700;color:var(--danger);margin:16px 0 8px">🔴 CRITICAL — Production Bugs</p>
+
+<div style="border-left:4px solid var(--danger);padding-left:14px;margin:10px 0;font-size:12.5px;color:var(--text-s);line-height:1.9">
+<p><strong>#1 Role resolution is completely broken</strong><br>
+<em>File: skill_loader.py:35-46</em><br>
+<code>get_tenant_roles()</code> reads SSM <code>/openclaw/{stack}/tenants/{tenant_id}/roles</code>. <strong>No code in the entire codebase writes this parameter.</strong> <code>seed_ssm_tenants.py</code> (deleted) wrote <code>/tenants/{id}/position</code>, not <code>/tenants/{id}/roles</code>. The SSM read always fails → fallback to <code>["employee"]</code>.<br>
+<strong>Impact:</strong> Every employee's role is "employee". No department skill passes the filter.<br>
+<strong>Fix needed:</strong> Either (a) write roles to SSM during auto-provisioning, or (b) change <code>get_tenant_roles()</code> to read from DynamoDB POS# like permissions.py does.</p>
+
+<p><strong>#2 20 department skills are inaccessible</strong><br>
+<em>File: skill_loader.py:80-85 + seed_skills_final.py:28-86</em><br>
+Direct consequence of #1. Skill manifests use department role names ("sales", "engineering") but tenant_roles = ["employee"]. <code>"employee"</code> is not in any department skill's <code>allowedRoles</code>. Only 6 global skills (<code>["*"]</code>) pass.<br>
+<strong>Verify:</strong> Check agent logs for "Layer 2 skill filtered: crm-query" — should appear for every employee.</p>
 </div>
 
-<p style="font-size:13px;font-weight:600;color:var(--warn);margin:12px 0 8px">HIGH Issues</p>
-<div style="border-left:3px solid var(--warn);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8">
-<p><strong>#3 S3 sync failures are silent:</strong> If S3 sync fails (network, credentials), skill_loader logs a warning and returns empty. No retry. Session runs without Layer 2 skills.</p>
-<p><strong>#4 Malformed skill.json = no restrictions:</strong> If skill.json is corrupted, load_skill_manifest() returns None → is_skill_allowed(None) returns True → skill is accessible to ALL roles. Permission bypass via manifest deletion.</p>
-<p><strong>#5 Env var collision:</strong> Two skills requiring GITHUB_TOKEN get different SSM values. Last one written to /tmp/skill_env.sh wins. No namespace isolation.</p>
-<p><strong>#6 API Keys are global, not per-employee:</strong> All employees sharing a position get the same API key. No per-employee key mechanism. No UI for employees to input their own keys. Key rotation affects all active sessions simultaneously.</p>
+<p style="font-size:14px;font-weight:700;color:var(--warn);margin:16px 0 8px">🟡 HIGH</p>
+
+<div style="border-left:4px solid var(--warn);padding-left:14px;margin:10px 0;font-size:12.5px;color:var(--text-s);line-height:1.9">
+<p><strong>#3 Corrupted skill.json = no restrictions</strong><br>
+<em>File: skill_loader.py:49-59 (load_skill_manifest), line 64 (is_skill_allowed)</em><br>
+If skill.json is corrupted/missing, <code>load_skill_manifest()</code> returns <code>None</code>. <code>is_skill_allowed(None, roles)</code> returns <code>True</code> (line 64). Skill is loaded for ALL tenants.<br>
+<strong>Reproduce:</strong> Delete a skill's skill.json from S3 → next session: skill available to everyone including blocked roles.</p>
+
+<p><strong>#4 Env var name collision across skills</strong><br>
+<em>File: skill_loader.py:191-211</em><br>
+Two skills needing <code>GITHUB_TOKEN</code> get different SSM values. Both write <code>export GITHUB_TOKEN='...'</code> to /tmp/skill_env.sh. Shell sources sequentially → last write wins.<br>
+<strong>Reproduce:</strong> Create two skills requiring GITHUB_TOKEN with different SSM values → check which one the agent actually uses.</p>
+
+<p><strong>#5 S3 sync failure = silent skill loss</strong><br>
+<em>File: skill_loader.py:96-105</em><br>
+If S3 sync fails (timeout, credentials), catches Exception, logs WARNING, returns empty list. No retry. Session runs with only Layer 1 skills.<br>
+<strong>Reproduce:</strong> Deploy with wrong S3_BUCKET env var → agent starts with 0 Layer 2 skills, no error to user.</p>
+
+<p><strong>#6 API keys are global, not per-employee</strong><br>
+<em>File: skill_loader.py:181-241</em><br>
+SSM path: <code>/openclaw/{stack}/skill-keys/{skill}/{env_var}</code> — one value shared by all employees. Fine for company-level APIs (Salesforce, SAP). <strong>Not fine for personal credentials</strong> (GitHub PAT, personal email IMAP).<br>
+No mechanism for employees to input their own keys. No Portal UI for key management.<br>
+<strong>Example:</strong> himalaya (email) skill needs <code>IMAP_USER</code> + <code>IMAP_PASS</code>. Currently all HR agents share one email account. Each HR person should use their own credentials.</p>
 </div>
 
-<p style="font-size:13px;font-weight:600;color:var(--pl);margin:12px 0 8px">MEDIUM Issues</p>
-<div style="border-left:3px solid var(--pl);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8">
-<p><strong>#7</strong> /tmp/skill_env.sh is world-readable (644) — contains plaintext API keys.</p>
-<p><strong>#8</strong> Deleting skill.json from a blocked skill → next load allows it (manifest=None → no restrictions).</p>
-<p><strong>#9</strong> SSM reads have no retry — transient AWS API blips cause permanent skill loss for the session.</p>
-<p><strong>#10</strong> Layer 3 bundles skip permission filtering entirely — extracted for all tenants regardless of role.</p>
-<p><strong>#11</strong> Skill names not validated for path traversal characters.</p>
-<p><strong>#12</strong> Env vars not re-sourced between sessions in entrypoint.sh daemon.</p>
+<p style="font-size:14px;font-weight:700;color:var(--pl);margin:16px 0 8px">🟣 MEDIUM</p>
+
+<div style="border-left:4px solid var(--pl);padding-left:14px;margin:10px 0;font-size:12.5px;color:var(--text-s);line-height:1.9">
+<p><strong>#7</strong> Layer 3 bundles skip permission filtering entirely <em>(line 141-178, no call to is_skill_allowed)</em></p>
+<p><strong>#8</strong> /tmp/skill_env.sh is world-readable (644) — contains plaintext API keys. Low risk in Firecracker VM (single tenant) but real risk if run on shared EC2.</p>
+<p><strong>#9</strong> SSM reads have no retry — transient AWS API blip = permanent skill loss for the session.</p>
+<p><strong>#10</strong> Skill names not validated for path traversal — <code>os.rename(skill_path, dest)</code> at line 118 with unchecked skill_name from S3 listing.</p>
+<p><strong>#11</strong> Skills loaded at startup only — mid-session admin changes not picked up until new session (5 min for serverless).</p>
 </div>
 
-<p style="font-size:13px;font-weight:600;color:var(--text-m);margin:12px 0 8px">DESIGN Gaps</p>
-<div style="border-left:3px solid var(--text-m);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8">
-<p><strong>#13</strong> No audit trail for skill filtering decisions (which skills denied, why, for whom).</p>
-<p><strong>#14</strong> No per-employee API key mechanism (Portal UI for personal tokens).</p>
-<p><strong>#15</strong> Skills loaded at startup only — mid-session changes not picked up.</p>
-<p><strong>#16</strong> No centralized role registry — skill manifests and position configs use different role name conventions.</p>
+<p style="font-size:14px;font-weight:700;color:var(--text-m);margin:16px 0 8px">⚪ DESIGN GAPS</p>
+
+<div style="border-left:4px solid var(--text-m);padding-left:14px;margin:10px 0;font-size:12.5px;color:var(--text-s);line-height:1.9">
+<p><strong>#12 No audit trail for skill filtering:</strong> Denied skills logged at INFO level only. No DynamoDB AUDIT# entry. Admin has no visibility into which skills were blocked for which tenant.</p>
+<p><strong>#13 No per-employee API key mechanism:</strong> Portal has no UI for employees to input personal tokens. Needs: DynamoDB <code>SKILL_KEY#{emp_id}#{skill}#{env_var}</code> + skill_loader.py to read employee key first, fallback to global.</p>
+<p><strong>#14 No centralized role registry:</strong> Skill manifests use "sales", positions use "pos-ae", permissions.py extracts from positionId. Three different naming conventions, no mapping table.</p>
+<p><strong>#15 Dockerfile skill install has no backoff:</strong> 3 retries with 5s fixed sleep (Dockerfile:38-42). clawhub unreachable = Docker build fails entirely.</p>
 </div>`)
 ,
-t(`<h4>三层架构</h4>
+t(`<h4>三层架构（已验证）</h4>
 <table class="tbl">
-<tr><th>层</th><th>位置</th><th>加载时间</th><th>添加新技能</th><th>示例</th></tr>
-<tr><td><strong>L1 内置</strong></td><td>Docker 镜像</td><td>0 秒</td><td>修改 Dockerfile → 重建（约 15 分钟）</td><td>jina-reader, web-search, github</td></tr>
-<tr><td><strong>L2 S3</strong></td><td>s3://_shared/skills/{name}/skill.json</td><td>约 2 秒</td><td>上传 skill.json（即时，无需重建）</td><td>crm-query, sap-connector</td></tr>
-<tr><td><strong>L3 SSM 包</strong></td><td>SSM 目录 → S3 tar.gz</td><td>约 5 秒</td><td>上传 tar.gz + 注册 SSM</td><td>企业自定义技能</td></tr>
+<tr><th>层</th><th>位置</th><th>加载时间</th><th>添加方式</th><th>权限过滤？</th></tr>
+<tr><td><strong>L1 内置</strong></td><td>Docker 镜像</td><td>0 秒</td><td>修改 Dockerfile → 重建</td><td>否（始终加载）</td></tr>
+<tr><td><strong>L2 S3</strong></td><td><code>s3://_shared/skills/{name}/skill.json</code></td><td>约 2 秒</td><td>上传到 S3（即时）</td><td><strong>是</strong></td></tr>
+<tr><td><strong>L3 SSM 包</strong></td><td>SSM 目录 → S3 tar.gz</td><td>约 5 秒</td><td>上传 + 注册 SSM</td><td><strong>否！</strong>（见发现 #10）</td></tr>
 </table>
 
-<h4>技能加载过程 (skill_loader.py)</h4>
+<h4>完整技能加载流程（skill_loader.py，283 行——逐行阅读）</h4>
 <div class="code">容器启动 → entrypoint.sh 调用 skill_loader.py
-1. get_tenant_roles(): 从 SSM 读取角色 → 失败时默认 ["employee"]
-2. Layer 1: Docker 镜像中，无需加载
-3. Layer 2: S3 同步 → 读 skill.json → 权限过滤 → 复制到工作区
-4. Layer 3: SSM 目录 → 下载 tar.gz → 解压（无权限过滤！）
-5. API Key: SSM → /tmp/skill_env.sh → server.py 每次调用前加载</div>
 
-<h4>权限过滤逻辑</h4>
-<div class="code">is_skill_allowed(manifest, roles):
-  1. manifest 为 None → True（无限制）← 审计问题 #4
-  2. 角色在 blockedRoles → 拒绝
-  3. allowedRoles 有 "*" → 允许
-  4. 角色在 allowedRoles → 允许
-  5. 否则 → 拒绝（静默）</div>
+步骤 1: get_tenant_roles() [行 35-46]
+  → SSM: /openclaw/{stack}/tenants/{tenant_id}/roles
+  → SSM 读取失败（总是失败——无代码写入此参数）→ 返回 ["employee"]
 
-<h4 style="color:var(--danger)">⚠️ 审计发现（19 项，2 个关键）</h4>
+步骤 2: load_layer2_skills() [行 88-138]
+  → S3 同步 → 读 skill.json → is_skill_allowed() → 过滤/加载
 
-<p style="font-size:13px;font-weight:600;color:var(--danger)">关键问题</p>
-<div style="border-left:3px solid var(--danger);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8">
-<p><strong>#1 角色分类不匹配：</strong>skill.json 用部门角色名（"sales"），系统用岗位 ID（"pos-ae"）。SSM 映射参数<strong>从未被任何代码写入</strong>。</p>
-<p><strong>#2 "employee" 默认阻止 99% 技能：</strong>SSM 读取失败（总是失败）→ 默认 ["employee"] → 几乎所有部门技能被阻止。</p>
+步骤 3: load_layer3_bundles() [行 141-178]
+  → SSM 目录 → 下载 tar.gz → 解压
+  → ⚠ 无权限过滤——所有租户都解压
+
+步骤 4: inject_skill_keys() [行 181-241]
+  → 每个技能的 requires.env → SSM 读取 → /tmp/skill_env.sh</div>
+
+<h4>权限过滤逻辑（行 62-85，已验证）</h4>
+<div class="code">is_skill_allowed(manifest, tenant_roles):
+  行 64: manifest 为 None → True（⚠ 损坏 = 无限制）
+  行 78: allowedRoles 有 "*" → True（全局技能）
+  行 80-82: 角色在 allowedRoles → True
+  行 85: 否则 → False（静默拒绝）
+
+tenant_roles = ["employee"]（总是，因为 SSM bug）：
+  全局技能（["*"]）→ 允许 ✓
+  部门技能（["sales","csm"]）→ 拒绝 ✗
+  → 只有 6 个全局技能可用，20 个部门技能被阻止</div>
+
+<h4 style="color:var(--danger)">⚠️ 已验证审计发现</h4>
+
+<p style="font-size:14px;font-weight:700;color:var(--danger)">🔴 关键——生产 Bug</p>
+<div style="border-left:4px solid var(--danger);padding-left:14px;margin:10px 0;font-size:12.5px;color:var(--text-s);line-height:1.9">
+<p><strong>#1 角色解析完全损坏</strong><br>
+<code>get_tenant_roles()</code> 从 SSM 读取 <code>/tenants/{id}/roles</code>。<strong>整个代码库无代码写入此参数。</strong>总是返回 <code>["employee"]</code>。<br>
+<strong>影响：</strong>每个员工角色都是 "employee"。所有部门技能被过滤掉。</p>
+
+<p><strong>#2 20 个部门技能不可访问</strong><br>
+#1 的直接后果。技能清单用 "sales"、"engineering" 等角色名，但 tenant_roles = ["employee"]。</p>
 </div>
 
-<p style="font-size:13px;font-weight:600;color:var(--warn)">高优先级</p>
-<div style="border-left:3px solid var(--warn);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8">
-<p><strong>#3</strong> S3 同步失败静默处理，无重试。</p>
-<p><strong>#4</strong> 损坏的 skill.json = 无限制（manifest=None → 允许所有角色）。</p>
-<p><strong>#5</strong> 环境变量冲突：两个技能需要同名变量，后写覆盖前写。</p>
-<p><strong>#6</strong> API Key 全局共享，无每员工机制。无轮换。</p>
+<p style="font-size:14px;font-weight:700;color:var(--warn)">🟡 高优先级</p>
+<div style="border-left:4px solid var(--warn);padding-left:14px;margin:10px 0;font-size:12.5px;color:var(--text-s);line-height:1.9">
+<p><strong>#3</strong> 损坏的 skill.json = 无限制（行 64：manifest 为 None → True）</p>
+<p><strong>#4</strong> 环境变量名冲突（两个技能需要同名变量，后写覆盖前写）</p>
+<p><strong>#5</strong> S3 同步失败静默处理，无重试</p>
+<p><strong>#6</strong> API Key 全局共享，无每员工机制。公司级 API（Salesforce）可以。个人凭据（GitHub PAT、邮箱密码）不行。</p>
 </div>
 
-<p style="font-size:13px;font-weight:600;color:var(--pl)">中优先级</p>
-<div style="border-left:3px solid var(--pl);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8">
-<p><strong>#7</strong> /tmp/skill_env.sh 全局可读（644）——含明文 API Key。</p>
-<p><strong>#8</strong> 删除 skill.json → 下次加载绕过权限。</p>
-<p><strong>#9</strong> SSM 读取无重试。<strong>#10</strong> L3 包跳过权限过滤。</p>
-<p><strong>#11</strong> 技能名未验证路径遍历。<strong>#12</strong> 环境变量守护进程间不同步。</p>
+<p style="font-size:14px;font-weight:700;color:var(--pl)">🟣 中优先级</p>
+<div style="border-left:4px solid var(--pl);padding-left:14px;margin:10px 0;font-size:12.5px;color:var(--text-s);line-height:1.9">
+<p><strong>#7</strong> L3 包跳过权限过滤。<strong>#8</strong> /tmp/skill_env.sh 全局可读。<strong>#9</strong> SSM 无重试。<strong>#10</strong> 技能名未验证。<strong>#11</strong> 启动时加载，会话中变更不生效。</p>
 </div>
 
-<p style="font-size:13px;font-weight:600;color:var(--text-m)">设计缺口</p>
-<div style="border-left:3px solid var(--text-m);padding-left:12px;margin:8px 0;font-size:12px;color:var(--text-s);line-height:1.8">
-<p><strong>#13</strong> 技能过滤无审计日志。<strong>#14</strong> 无每员工 API Key 机制。</p>
-<p><strong>#15</strong> 技能启动时加载，会话中变更不生效。<strong>#16</strong> 无集中角色注册表。</p>
+<p style="font-size:14px;font-weight:700;color:var(--text-m)">⚪ 设计缺口</p>
+<div style="border-left:4px solid var(--text-m);padding-left:14px;margin:10px 0;font-size:12.5px;color:var(--text-s);line-height:1.9">
+<p><strong>#12</strong> 技能过滤无审计日志。<strong>#13</strong> 无每员工 API Key 机制。<strong>#14</strong> 无集中角色注册表（三种命名约定无映射）。<strong>#15</strong> Dockerfile 安装无退避。</p>
 </div>`)
     ); }},
+
 
 
 
